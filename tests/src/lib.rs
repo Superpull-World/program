@@ -1,130 +1,252 @@
-#[cfg(test)]
-mod tests {
-    use anchor_lang::prelude::*;
+use std::str::FromStr;
+use anchor_client::{
+    solana_sdk::{
+        commitment_config::CommitmentConfig, pubkey::Pubkey, signature::{read_keypair_file, Keypair}, signer::Signer, system_program
+    },
+    Client, Cluster,
+};
 
-    #[test]
-    fn test_initialize_auction() {
-        // Create test environment
-        let authority = Pubkey::new_unique();
-        let merkle_tree = Pubkey::new_unique();
+#[test]
+fn test_initialize_auction() {
+    let program_id = "EDX7DLx7YwQFFMC9peZh5nDqiB4bKVpa2SpvSfwz4XUG";
+    let anchor_wallet = std::env::var("ANCHOR_WALLET").unwrap();
+    let payer = read_keypair_file(&anchor_wallet).unwrap();
 
-        // Set up auction state
-        let base_price: u64 = 100_000;
-        let price_increment: u64 = 10_000;
-        let max_supply: u64 = 100;
+    let client = Client::new_with_options(Cluster::Localnet, &payer, CommitmentConfig::confirmed());
+    let program_id = Pubkey::from_str(program_id).unwrap();
+    let program = client.program(program_id).unwrap();
 
-        // Create account data that would be created
-        let mut account_data = Vec::new();
-        account_data.extend_from_slice(&[0; 8]); // Discriminator
-        account_data.extend_from_slice(&authority.to_bytes());
-        account_data.extend_from_slice(&merkle_tree.to_bytes());
-        account_data.extend_from_slice(&base_price.to_le_bytes());
-        account_data.extend_from_slice(&price_increment.to_le_bytes());
-        account_data.extend_from_slice(&max_supply.to_le_bytes());
-        account_data.extend_from_slice(&0u64.to_le_bytes()); // current_supply
-        account_data.extend_from_slice(&0u64.to_le_bytes()); // total_value_locked
+    // Create test accounts
+    let authority = &payer;
+    let merkle_tree = Keypair::new();
+    
+    // Store pubkeys
+    let merkle_tree_pubkey = merkle_tree.pubkey();
+    let authority_pubkey = authority.pubkey();
 
-        // Verify account data structure
-        let mut data = account_data.as_slice();
-        let _discriminator = &data[..8];
-        data = &data[8..];
+    // Set up auction parameters
+    let base_price: u64 = 100_000;
+    let price_increment: u64 = 10_000;
+    let max_supply: u64 = 100;
+    let minimum_items: u64 = 5;
 
-        let authority_bytes = &data[..32];
-        let merkle_tree_bytes = &data[32..64];
-        let base_price_bytes = &data[64..72];
-        let price_increment_bytes = &data[72..80];
-        let max_supply_bytes = &data[80..88];
-        let current_supply_bytes = &data[88..96];
-        let total_value_locked_bytes = &data[96..104];
+    // Calculate auction PDA
+    let seeds = &[
+        b"auction",
+        merkle_tree_pubkey.as_ref(),
+        authority_pubkey.as_ref(),
+    ];
+    let (auction_pda, _bump) = Pubkey::find_program_address(seeds, &program_id);
 
-        let authority_from_data = Pubkey::new_from_array(authority_bytes.try_into().unwrap());
-        let merkle_tree_from_data = Pubkey::new_from_array(merkle_tree_bytes.try_into().unwrap());
-        let base_price_from_data = u64::from_le_bytes(base_price_bytes.try_into().unwrap());
-        let price_increment_from_data = u64::from_le_bytes(price_increment_bytes.try_into().unwrap());
-        let max_supply_from_data = u64::from_le_bytes(max_supply_bytes.try_into().unwrap());
-        let current_supply_from_data = u64::from_le_bytes(current_supply_bytes.try_into().unwrap());
-        let total_value_locked_from_data = u64::from_le_bytes(total_value_locked_bytes.try_into().unwrap());
+    let tx = program
+        .request()
+        .accounts(superpull_program::accounts::InitializeAuction {
+            auction: auction_pda,
+            merkle_tree: merkle_tree_pubkey,
+            authority: authority_pubkey,
+            system_program: system_program::ID,
+        })
+        .args(superpull_program::instruction::InitializeAuction {
+            base_price,
+            price_increment,
+            max_supply,
+            minimum_items,
+        })
+        .send()
+        .expect("Failed to initialize auction");
 
-        // Verify data matches expected values
-        assert_eq!(authority_from_data, authority);
-        assert_eq!(merkle_tree_from_data, merkle_tree);
-        assert_eq!(base_price_from_data, base_price);
-        assert_eq!(price_increment_from_data, price_increment);
-        assert_eq!(max_supply_from_data, max_supply);
-        assert_eq!(current_supply_from_data, 0);
-        assert_eq!(total_value_locked_from_data, 0);
+    println!("Initialize auction transaction signature: {}", tx);
+
+    // Verify auction state
+    let auction_account = program.account::<superpull_program::AuctionState>(auction_pda)
+        .expect("Failed to fetch auction account");
+
+    assert_eq!(auction_account.authority, authority_pubkey);
+    assert_eq!(auction_account.merkle_tree, merkle_tree_pubkey);
+    assert_eq!(auction_account.base_price, base_price);
+    assert_eq!(auction_account.price_increment, price_increment);
+    assert_eq!(auction_account.current_supply, 0);
+    assert_eq!(auction_account.max_supply, max_supply);
+    assert_eq!(auction_account.total_value_locked, 0);
+    assert_eq!(auction_account.minimum_items, minimum_items);
+    assert_eq!(auction_account.is_graduated, false);
+}
+
+#[test]
+fn test_place_bid_and_graduation() {
+    let program_id = "EDX7DLx7YwQFFMC9peZh5nDqiB4bKVpa2SpvSfwz4XUG";
+    let anchor_wallet = std::env::var("ANCHOR_WALLET").unwrap();
+    let authority = read_keypair_file(&anchor_wallet).unwrap();
+    let bidder = Keypair::new(); // Create a new bidder keypair
+
+    let client = Client::new_with_options(Cluster::Localnet, &authority, CommitmentConfig::confirmed());
+    let program_id = Pubkey::from_str(program_id).unwrap();
+    let program = client.program(program_id).unwrap();
+
+    // Create test accounts
+    let merkle_tree = Keypair::new();
+    
+    // Store pubkeys
+    let merkle_tree_pubkey = merkle_tree.pubkey();
+    let authority_pubkey = authority.pubkey();
+    let bidder_pubkey = bidder.pubkey();
+
+    // Fund the bidder's account with some SOL for bids
+    let transfer_ix = anchor_client::solana_sdk::system_instruction::transfer(
+        &authority_pubkey,
+        &bidder_pubkey,
+        1_000_000_000, // 1 SOL
+    );
+
+    let fund_tx = program
+        .request()
+        .instruction(transfer_ix)
+        .signer(&authority)
+        .send()
+        .expect("Failed to fund bidder account");
+    
+    println!("Funded bidder account: {}", fund_tx);
+
+    // Set up auction parameters
+    let base_price: u64 = 100_000;
+    let price_increment: u64 = 10_000;
+    let max_supply: u64 = 100;
+    let minimum_items: u64 = 5;
+
+    // Calculate auction PDA
+    let seeds = &[
+        b"auction",
+        merkle_tree_pubkey.as_ref(),
+        authority_pubkey.as_ref(),
+    ];
+    let (auction_pda, _bump) = Pubkey::find_program_address(seeds, &program_id);
+
+    // Initialize auction first
+    let tx = program
+        .request()
+        .accounts(superpull_program::accounts::InitializeAuction {
+            auction: auction_pda,
+            merkle_tree: merkle_tree_pubkey,
+            authority: authority_pubkey,
+            system_program: system_program::ID,
+        })
+        .args(superpull_program::instruction::InitializeAuction {
+            base_price,
+            price_increment,
+            max_supply,
+            minimum_items,
+        })
+        .signer(&authority)
+        .send()
+        .expect("Failed to initialize auction");
+
+    println!("Initialize auction transaction signature: {}", tx);
+
+    // Place bids until graduation (5 bids)
+    for i in 0..minimum_items {
+        let bid_amount = base_price + (price_increment * i);
+        
+        let tx = program
+            .request()
+            .accounts(superpull_program::accounts::PlaceBid {
+                auction: auction_pda,
+                bidder: bidder_pubkey,
+                system_program: system_program::ID,
+            })
+            .args(superpull_program::instruction::PlaceBid {
+                amount: bid_amount,
+            })
+            .signer(&bidder)  // Add bidder as signer
+            .send()
+            .expect(&format!("Failed to place bid {}", i + 1));
+
+        println!("Bid {} transaction signature: {}", i + 1, tx);
+
+        // Verify auction state after each bid
+        let auction_account = program.account::<superpull_program::AuctionState>(auction_pda)
+            .expect("Failed to fetch auction account");
+
+        assert_eq!(auction_account.current_supply, i + 1);
+        
+        if i + 1 == minimum_items {
+            // This should be the graduating bid
+            assert_eq!(auction_account.is_graduated, true);
+        } else {
+            assert_eq!(auction_account.is_graduated, false);
+        }
     }
+}
 
-    #[test]
-    fn test_place_bid() {
-        // Create test environment
-        let authority = Pubkey::new_unique();
-        let merkle_tree = Pubkey::new_unique();
-        let bidder = Pubkey::new_unique();
+#[test]
+fn test_get_current_price() {
+    let program_id = "EDX7DLx7YwQFFMC9peZh5nDqiB4bKVpa2SpvSfwz4XUG";
+    let anchor_wallet = std::env::var("ANCHOR_WALLET").unwrap();
+    let authority = read_keypair_file(&anchor_wallet).unwrap();
 
-        // Set up auction state
-        let base_price: u64 = 100_000;
-        let price_increment: u64 = 10_000;
-        let max_supply: u64 = 100;
-        let current_supply: u64 = 0;
-        let total_value_locked: u64 = 0;
+    let client = Client::new_with_options(Cluster::Localnet, &authority, CommitmentConfig::confirmed());
+    let program_id = Pubkey::from_str(program_id).unwrap();
+    let program = client.program(program_id).unwrap();
 
-        // Create bid instruction data
-        let bid_amount = base_price + price_increment; // Enough for first NFT
+    // Create test accounts
+    let merkle_tree = Keypair::new();
+    
+    // Store pubkeys
+    let merkle_tree_pubkey = merkle_tree.pubkey();
+    let authority_pubkey = authority.pubkey();
 
-        // Create expected account data after bid
-        let mut account_data = Vec::new();
-        account_data.extend_from_slice(&[0; 8]); // Discriminator
-        account_data.extend_from_slice(&authority.to_bytes());
-        account_data.extend_from_slice(&merkle_tree.to_bytes());
-        account_data.extend_from_slice(&base_price.to_le_bytes());
-        account_data.extend_from_slice(&price_increment.to_le_bytes());
-        account_data.extend_from_slice(&max_supply.to_le_bytes());
-        account_data.extend_from_slice(&(current_supply + 1).to_le_bytes());
-        account_data.extend_from_slice(&(total_value_locked + bid_amount).to_le_bytes());
+    // Set up auction parameters
+    let base_price: u64 = 100_000;
+    let price_increment: u64 = 10_000;
+    let max_supply: u64 = 100;
+    let minimum_items: u64 = 5;
 
-        // Verify account data structure after bid
-        let mut data = account_data.as_slice();
-        let _discriminator = &data[..8];
-        data = &data[8..];
+    // Calculate auction PDA
+    let seeds = &[
+        b"auction",
+        merkle_tree_pubkey.as_ref(),
+        authority_pubkey.as_ref(),
+    ];
+    let (auction_pda, _bump) = Pubkey::find_program_address(seeds, &program_id);
 
-        let authority_bytes = &data[..32];
-        let merkle_tree_bytes = &data[32..64];
-        let base_price_bytes = &data[64..72];
-        let price_increment_bytes = &data[72..80];
-        let max_supply_bytes = &data[80..88];
-        let current_supply_bytes = &data[88..96];
-        let total_value_locked_bytes = &data[96..104];
+    // Initialize auction first
+    let tx = program
+        .request()
+        .accounts(superpull_program::accounts::InitializeAuction {
+            auction: auction_pda,
+            merkle_tree: merkle_tree_pubkey,
+            authority: authority_pubkey,
+            system_program: system_program::ID,
+        })
+        .args(superpull_program::instruction::InitializeAuction {
+            base_price,
+            price_increment,
+            max_supply,
+            minimum_items,
+        })
+        .send()
+        .expect("Failed to initialize auction");
 
-        let authority_from_data = Pubkey::new_from_array(authority_bytes.try_into().unwrap());
-        let merkle_tree_from_data = Pubkey::new_from_array(merkle_tree_bytes.try_into().unwrap());
-        let base_price_from_data = u64::from_le_bytes(base_price_bytes.try_into().unwrap());
-        let price_increment_from_data = u64::from_le_bytes(price_increment_bytes.try_into().unwrap());
-        let max_supply_from_data = u64::from_le_bytes(max_supply_bytes.try_into().unwrap());
-        let current_supply_from_data = u64::from_le_bytes(current_supply_bytes.try_into().unwrap());
-        let total_value_locked_from_data = u64::from_le_bytes(total_value_locked_bytes.try_into().unwrap());
+    println!("Initialize auction transaction signature: {}", tx);
 
-        // Verify data matches expected values after bid
-        assert_eq!(authority_from_data, authority);
-        assert_eq!(merkle_tree_from_data, merkle_tree);
-        assert_eq!(base_price_from_data, base_price);
-        assert_eq!(price_increment_from_data, price_increment);
-        assert_eq!(max_supply_from_data, max_supply);
-        assert_eq!(current_supply_from_data, 1);
-        assert_eq!(total_value_locked_from_data, bid_amount);
-    }
+    // Get current price
+    let tx = program
+        .request()
+        .accounts(superpull_program::accounts::GetPrice {
+            auction: auction_pda,
+        })
+        .args(superpull_program::instruction::GetCurrentPrice {})
+        .send()
+        .expect("Failed to get current price");
 
-    #[test]
-    fn test_get_current_price() {
-        // Set up auction state
-        let base_price: u64 = 100_000;
-        let price_increment: u64 = 10_000;
-        let current_supply: u64 = 5; // Simulate 5 NFTs sold
+    println!("Get price transaction signature: {}", tx);
 
-        // Calculate expected current price
-        let expected_price = base_price + (price_increment * current_supply);
+    // Verify price through account data
+    let auction_account = program.account::<superpull_program::AuctionState>(auction_pda)
+        .expect("Failed to fetch auction account");
 
-        // Verify price calculation
-        assert_eq!(expected_price, base_price + (price_increment * current_supply));
-    }
+    let expected_price = base_price + (price_increment * auction_account.current_supply);
+    let current_price = auction_account.base_price + 
+        (auction_account.price_increment * auction_account.current_supply);
+
+    assert_eq!(current_price, expected_price);
 }

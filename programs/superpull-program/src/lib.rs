@@ -16,6 +16,7 @@ pub mod superpull_program {
         base_price: u64,
         price_increment: u64,
         max_supply: u64,
+        minimum_items: u64,
     ) -> Result<()> {
         let auction = &mut ctx.accounts.auction;
         auction.authority = ctx.accounts.authority.key();
@@ -25,6 +26,8 @@ pub mod superpull_program {
         auction.current_supply = 0;
         auction.max_supply = max_supply;
         auction.total_value_locked = 0;
+        auction.minimum_items = minimum_items;
+        auction.is_graduated = false;
         Ok(())
     }
 
@@ -72,6 +75,16 @@ pub mod superpull_program {
             .ok_or(BondingCurveError::MathOverflow)?;
         auction.total_value_locked = auction.total_value_locked.checked_add(amount)
             .ok_or(BondingCurveError::MathOverflow)?;
+
+        // Check if auction has graduated
+        if !auction.is_graduated && auction.current_supply >= auction.minimum_items {
+            auction.is_graduated = true;
+            emit!(AuctionGraduated {
+                auction: auction.key(),
+                total_items: auction.current_supply,
+                total_value_locked: auction.total_value_locked,
+            });
+        }
 
         // Emit bid event
         emit!(BidPlaced {
@@ -140,6 +153,8 @@ pub struct AuctionState {
     pub current_supply: u64,
     pub max_supply: u64,
     pub total_value_locked: u64,
+    pub minimum_items: u64,
+    pub is_graduated: bool,
 }
 
 impl AuctionState {
@@ -150,7 +165,9 @@ impl AuctionState {
         8 + // price_increment
         8 + // current_supply
         8 + // max_supply
-        8; // total_value_locked
+        8 + // total_value_locked
+        8 + // minimum_items
+        1; // is_graduated
 }
 
 #[event]
@@ -166,6 +183,13 @@ pub struct BidPlaced {
     pub bidder: Pubkey,
     pub amount: u64,
     pub new_supply: u64,
+}
+
+#[event]
+pub struct AuctionGraduated {
+    pub auction: Pubkey,
+    pub total_items: u64,
+    pub total_value_locked: u64,
 }
 
 #[error_code]
