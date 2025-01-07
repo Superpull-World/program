@@ -1,9 +1,11 @@
 use anchor_lang::prelude::*;
-
+use mpl_bubblegum::instructions::SetTreeDelegateCpi;
 declare_id!("EDX7DLx7YwQFFMC9peZh5nDqiB4bKVpa2SpvSfwz4XUG");
 
 #[program]
 pub mod superpull_program {
+    use mpl_bubblegum::instructions::SetTreeDelegateCpiAccounts;
+
     use super::*;
 
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
@@ -28,6 +30,23 @@ pub mod superpull_program {
         auction.total_value_locked = 0;
         auction.minimum_items = minimum_items;
         auction.is_graduated = false;
+        let merkle_tree = ctx.accounts.merkle_tree.to_account_info();
+        let tree_config = ctx.accounts.tree_config.to_account_info();
+        let tree_creator = ctx.accounts.tree_creator.to_account_info();
+        let new_tree_delegate = ctx.accounts.auction.to_account_info();
+        let system_program = ctx.accounts.system_program.to_account_info();
+        let bubblegum = ctx.accounts.bubblegum_program.to_account_info();
+        let authority_key = ctx.accounts.authority.key();
+
+        let cpi = SetTreeDelegateCpi::new(&bubblegum, SetTreeDelegateCpiAccounts {
+            merkle_tree: &merkle_tree,
+            tree_config: &tree_config,
+            tree_creator: &tree_creator,
+            new_tree_delegate: &new_tree_delegate,
+            system_program: &system_program,
+        });
+        let seeds = [authority_key.as_ref()];
+        cpi.invoke_signed(&[&seeds])?;
         Ok(())
     }
 
@@ -120,11 +139,17 @@ pub struct InitializeAuction<'info> {
     /// The merkle tree that contains the compressed NFT
     /// CHECK: Validated by Bubblegum program
     pub merkle_tree: AccountInfo<'info>,
+    /// CHECK: Validated by Bubblegum program
+    pub tree_config: AccountInfo<'info>,
+    /// CHECK: Validated by Bubblegum program
+    pub tree_creator: AccountInfo<'info>,
     
     /// The authority who can manage the auction
     #[account(mut)]
     pub authority: Signer<'info>,
     
+    /// CHECK: Validated by Bubblegum program
+    pub bubblegum_program: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
 }
 
