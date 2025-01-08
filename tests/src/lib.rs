@@ -27,6 +27,7 @@ fn test_initialize_auction() {
     // Create test accounts
     let authority = &payer;
     let merkle_tree = Keypair::new();
+    println!("Creating tree");
     let create_tree_ix = anchor_lang::solana_program::system_instruction::create_account(
         &authority.pubkey(),
         &merkle_tree.pubkey(),
@@ -34,7 +35,6 @@ fn test_initialize_auction() {
         size_of::<MerkleTree>() as u64,
         &authority.pubkey(),
     );
-    println!("Creating tree");
     let create_tree_tx = program
         .request()
         .instruction(create_tree_ix)
@@ -53,7 +53,7 @@ fn test_initialize_auction() {
         .tree_creator(authority.pubkey())
         .max_depth(14)
         .max_buffer_size(64)
-        .public(true)
+        .public(false)
         .instruction();
 
     let create_tree_config_tx = bubblegum_program
