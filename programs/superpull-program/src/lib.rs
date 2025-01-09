@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
-use mpl_bubblegum::instructions::MintToCollectionV1Cpi;
+use mpl_bubblegum::{accounts::TreeConfig, instructions::MintToCollectionV1Cpi, types::Collection, };
+
 declare_id!("EDX7DLx7YwQFFMC9peZh5nDqiB4bKVpa2SpvSfwz4XUG");
 
 #[program]
@@ -35,6 +36,7 @@ pub mod superpull_program {
         auction.total_value_locked = 0;
         auction.minimum_items = minimum_items;
         auction.is_graduated = false;
+        auction.bump = ctx.bumps.auction;
 
         Ok(())
     }
@@ -114,7 +116,8 @@ pub mod superpull_program {
         let compression_program = ctx.accounts.compression_program.to_account_info();
         let token_metadata_program = ctx.accounts.token_metadata_program.to_account_info();
         let system_program = ctx.accounts.system_program.to_account_info();
-
+        let bubblegum_signer = ctx.accounts.bubblegum_signer.to_account_info();
+        let collection_authority_record_pda = ctx.accounts.collection_authority_record_pda.to_account_info();
         // Initialize CPI
         let mint_to_collection_cpi = MintToCollectionV1Cpi::new(
             bubblegum_program.as_ref(),
@@ -122,16 +125,16 @@ pub mod superpull_program {
                 tree_config: tree_config.as_ref(),
                 leaf_owner: bidder.as_ref(),
                 leaf_delegate: bidder.as_ref(),
-                merkle_tree: &merkle_tree,
+                merkle_tree: merkle_tree.as_ref(),
                 payer: payer.as_ref(),
-                tree_creator_or_delegate: auction_account.as_ref(),
+                tree_creator_or_delegate: &auction_account.as_ref(),
                 collection_authority: auction_account.as_ref(),
                 collection_mint: collection_mint.as_ref(),
-                collection_authority_record_pda: Some(bubblegum_program.as_ref()),
                 collection_metadata: collection_metadata.as_ref(),
                 collection_edition: collection_edition.as_ref(),
-                bubblegum_signer: auction_account.as_ref(),
+                collection_authority_record_pda: Some(collection_authority_record_pda.as_ref()),
                 log_wrapper: log_wrapper.as_ref(),
+                bubblegum_signer: bubblegum_signer.as_ref(),
                 compression_program: compression_program.as_ref(),
                 token_metadata_program: &token_metadata_program,
                 system_program: &system_program,
@@ -145,7 +148,10 @@ pub mod superpull_program {
                     creators: vec![],
                     primary_sale_happened: false,
                     is_mutable: false,
-                    collection: None,
+                    collection: Some(Collection {
+                        key: collection_mint.key(),
+                        verified: true,
+                    }),
                     uses: None,
                     edition_nonce: None,
                     token_standard: Some(TokenStandard::NonFungible),
@@ -229,21 +235,36 @@ pub struct PlaceBid<'info> {
     pub payer: Signer<'info>,
 
     /// CHECK: Validated by Bubblegum program
+    #[account(mut)]
     pub collection_mint: AccountInfo<'info>,
 
     /// CHECK: Validated by Bubblegum program
+    #[account(mut)]
     pub collection_metadata: AccountInfo<'info>,
 
     /// CHECK: Validated by Bubblegum program
+    #[account(mut)]
     pub collection_edition: AccountInfo<'info>,
 
     /// CHECK: Validated by Bubblegum program
+    pub collection_authority_record_pda: AccountInfo<'info>,
+
+    /// CHECK: Validated by Bubblegum program
+    #[account(mut)]
     pub merkle_tree: AccountInfo<'info>,
     /// CHECK: Validated by Bubblegum program
+    #[account(mut)]
     pub tree_config: AccountInfo<'info>,
     /// CHECK: Validated by Bubblegum program
     pub tree_creator: AccountInfo<'info>,
 
+    /// CHECK: Validated by Bubblegum program
+    #[account(
+        seeds = [b"collection_cpi"],
+        seeds::program = bubblegum_program.key(),
+        bump,
+    )]
+    pub bubblegum_signer: UncheckedAccount<'info>,
     /// CHECK: Validated by Bubblegum program
     pub token_metadata_program: AccountInfo<'info>,
     /// CHECK: Validated by Compression program
