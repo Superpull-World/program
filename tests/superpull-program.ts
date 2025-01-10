@@ -187,6 +187,7 @@ describe("Superpull Program", () => {
     console.log("📊 Auction State:", {
       basePrice: auctionState.basePrice.toString(),
       priceIncrement: auctionState.priceIncrement.toString(),
+      minimumItems: auctionState.minimumItems.toString(),
       maxSupply: auctionState.maxSupply.toString(),
       currentSupply: auctionState.currentSupply.toString(),
       totalValueLocked: auctionState.totalValueLocked.toString(),
@@ -203,9 +204,9 @@ describe("Superpull Program", () => {
     assert.ok(!auctionState.isGraduated, "Auction should not be graduated initially");
   });
 
-  it("should place bid and graduate", async () => {
+  it("should place bid", async () => {
     console.log("💰 Placing bid...");
-    const bidAmount = new BN(150_000); // Base price + increment
+    const bidAmount = new BN(1); // Base price + increment
 
     // Debug account states
     const accountStates = {
@@ -247,6 +248,98 @@ describe("Superpull Program", () => {
       .rpc({ skipPreflight: true });
 
     console.log("✅ Bid placed successfully");
+
+    // Print auction state after bid
+    const auctionStateAfterBid = await program.account.auctionState.fetch(auctionPda);
+    const currentPrice = auctionStateAfterBid.basePrice.add(
+      auctionStateAfterBid.priceIncrement.mul(auctionStateAfterBid.currentSupply)
+    );
+    
+    console.log("📊 Auction State After Bid:", {
+      basePrice: auctionStateAfterBid.basePrice.toString(),
+      priceIncrement: auctionStateAfterBid.priceIncrement.toString(),
+      minimumItems: auctionStateAfterBid.minimumItems.toString(),
+      maxSupply: auctionStateAfterBid.maxSupply.toString(),
+      currentSupply: auctionStateAfterBid.currentSupply.toString(),
+      totalValueLocked: auctionStateAfterBid.totalValueLocked.toString(),
+      isGraduated: auctionStateAfterBid.isGraduated,
+      currentPrice: currentPrice.toString(),
+    });
+  });
+
+  it("should graduate after 5 bids", async () => {
+    console.log("🎓 Testing graduation with 4 more bids...");
+    
+    const accounts = {
+      auction: auctionPda,
+      bidder: authority.publicKey,
+      payer: authority.publicKey,
+      collectionMint: toWeb3JsPublicKey(collectionMint.publicKey),
+      collectionMetadata: findMetadataPda(),
+      collectionEdition: findEditionPda(),
+      collectionAuthority: fromWeb3JsPublicKey(authority.publicKey),
+      merkleTree: toWeb3JsPublicKey(merkleTree.publicKey),
+      collectionAuthorityRecordPda: collectionAuthorityRecordPda[0],
+      treeConfig: treeConfigPda,
+      treeCreator: auctionPda,
+      bubblegumSigner: findBubblegumSignerPda(),
+      bubblegumProgram: toWeb3JsPublicKey(MPL_BUBBLEGUM_PROGRAM_ID),
+      logWrapper: NOOP_PROGRAM_ID,
+      compressionProgram: COMPRESSION_PROGRAM_ID,
+      tokenMetadataProgram: toWeb3JsPublicKey(MPL_TOKEN_METADATA_PROGRAM_ID),
+      systemProgram: SystemProgram.programId,
+    };
+
+    // Place 4 more bids
+    for (let i = 0; i < 4; i++) {
+      const auctionState = await program.account.auctionState.fetch(auctionPda);
+      const currentPrice = auctionState.basePrice.add(
+        auctionState.priceIncrement.mul(auctionState.currentSupply)
+      );
+      
+      console.log(`\n💰 Placing bid ${i + 2} of 5...`);
+      await program.methods
+        .placeBid(currentPrice)
+        .accounts(accounts)
+        .signers([authority.payer])
+        .rpc({ skipPreflight: true });
+      
+      // Print state after each bid
+      const stateAfterBid = await program.account.auctionState.fetch(auctionPda);
+      const newPrice = stateAfterBid.basePrice.add(
+        stateAfterBid.priceIncrement.mul(stateAfterBid.currentSupply)
+      );
+      
+      console.log(`📊 State after bid ${i + 2}:`, {
+        currentSupply: stateAfterBid.currentSupply.toString(),
+        totalValueLocked: stateAfterBid.totalValueLocked.toString(),
+        isGraduated: stateAfterBid.isGraduated,
+        currentPrice: newPrice.toString(),
+        currentPriceInSOL: `${newPrice.toNumber() / LAMPORTS_PER_SOL} SOL`
+      });
+    }
+
+    
+    // Verify final state
+    const finalState = await program.account.auctionState.fetch(auctionPda);
+    const currentPrice = finalState.basePrice.add(
+      finalState.priceIncrement.mul(finalState.currentSupply)
+    );
+    console.log("\n🎓 Final Auction State:", {
+      basePrice: finalState.basePrice.toString(),
+      priceIncrement: finalState.priceIncrement.toString(),
+      minimumItems: finalState.minimumItems.toString(),
+      maxSupply: finalState.maxSupply.toString(),
+      currentSupply: finalState.currentSupply.toString(),
+      totalValueLocked: finalState.totalValueLocked.toString(),
+      isGraduated: finalState.isGraduated,
+      currentPrice: currentPrice.toString(),
+    });
+
+    // Assert graduation
+    assert.ok(finalState.isGraduated, "Auction should be graduated after 5 bids");
+    assert.ok(new BN(finalState.currentSupply).gte(finalState.minimumItems), 
+      "Current supply should be >= minimum items");
   });
 
   // Helper functions for finding PDAs
