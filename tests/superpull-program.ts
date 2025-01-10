@@ -284,8 +284,20 @@ describe("Superpull Program", () => {
     console.log("💰 Placing bid...");
     const bidAmount = new BN(1); // Base price + increment
 
+    // Find bid PDA
+    const [bidPda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("bid"),
+        auctionPda.toBuffer(),
+        payer.publicKey.toBuffer(),
+      ],
+      program.programId
+    );
+    console.log("🎯 Bid PDA:", bidPda.toString());
+
     const accounts = {
       auction: auctionPda,
+      bid: bidPda,
       bidder: payer.publicKey,
       payer: payer.publicKey,
       bidderTokenAccount: bidderTokenAccount,
@@ -341,6 +353,17 @@ describe("Superpull Program", () => {
       "Auction should receive exact bid amount"
     );
 
+    // Verify bid account state
+    const bidState = await program.account.bidState.fetch(bidPda);
+    console.log("📊 Bid State:", {
+      auction: bidState.auction.toString(),
+      bidder: bidState.bidder.toString(),
+      amount: bidState.amount.toString(),
+    });
+
+    assert.ok(bidState.auction.equals(auctionPda), "Bid auction should match");
+    assert.ok(bidState.bidder.equals(payer.publicKey), "Bid bidder should match");
+
     // Print auction state after bid
     const auctionStateAfterBid = await program.account.auctionState.fetch(auctionPda);
     const currentPrice = auctionStateAfterBid.basePrice.add(
@@ -362,8 +385,19 @@ describe("Superpull Program", () => {
   it("should graduate after 5 bids", async () => {
     console.log("🎓 Testing graduation with 4 more bids...");
     
+    // Find bid PDA
+    const [bidPda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("bid"),
+        auctionPda.toBuffer(),
+        payer.publicKey.toBuffer(),
+      ],
+      program.programId
+    );
+    
     const accounts = {
       auction: auctionPda,
+      bid: bidPda,
       bidder: payer.publicKey,
       payer: payer.publicKey,
       bidderTokenAccount: bidderTokenAccount,
@@ -408,6 +442,17 @@ describe("Superpull Program", () => {
       const afterBidderBalance = (await getTokenAccount(provider.connection, bidderTokenAccount)).amount;
       const afterAuctionBalance = (await getTokenAccount(provider.connection, auctionTokenAccount)).amount;
       
+      // Verify bid account state
+      const bidState = await program.account.bidState.fetch(bidPda);
+      console.log(`📊 Bid ${i + 2} State:`, {
+        auction: bidState.auction.toString(),
+        bidder: bidState.bidder.toString(),
+        amount: bidState.amount.toString(),
+      });
+
+      assert.ok(bidState.auction.equals(auctionPda), "Bid auction should match");
+      assert.ok(bidState.bidder.equals(payer.publicKey), "Bid bidder should match");
+      
       // Print state after each bid
       const stateAfterBid = await program.account.auctionState.fetch(auctionPda);
       const newPrice = stateAfterBid.basePrice.add(
@@ -450,8 +495,19 @@ describe("Superpull Program", () => {
   it("should reject bids after reaching max supply", async () => {
     console.log("\n🎯 Testing max supply limit...");
     
+    // Find bid PDA
+    const [bidPda] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("bid"),
+        auctionPda.toBuffer(),
+        payer.publicKey.toBuffer(),
+      ],
+      program.programId
+    );
+    
     const accounts = {
       auction: auctionPda,
+      bid: bidPda,
       bidder: payer.publicKey,
       payer: payer.publicKey,
       bidderTokenAccount: bidderTokenAccount,
@@ -501,6 +557,17 @@ describe("Superpull Program", () => {
       // Get token balances after bid
       const afterBidderBalance = (await getTokenAccount(provider.connection, bidderTokenAccount)).amount;
       const afterAuctionBalance = (await getTokenAccount(provider.connection, auctionTokenAccount)).amount;
+      
+      // Verify bid account state
+      const bidState = await program.account.bidState.fetch(bidPda);
+      console.log(`📊 Bid ${i + 1} State:`, {
+        auction: bidState.auction.toString(),
+        bidder: bidState.bidder.toString(),
+        amount: bidState.amount.toString(),
+      });
+
+      assert.ok(bidState.auction.equals(auctionPda), "Bid auction should match");
+      assert.ok(bidState.bidder.equals(payer.publicKey), "Bid bidder should match");
       
       const stateAfterBid = await program.account.auctionState.fetch(auctionPda);
       console.log(`📊 Supply after bid: ${stateAfterBid.currentSupply} / ${stateAfterBid.maxSupply}`);

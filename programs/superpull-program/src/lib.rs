@@ -34,4 +34,8 @@ pub mod superpull_program {
     pub fn withdraw(ctx: Context<Withdraw>) -> Result<()> {
         withdraw_handler(ctx)
     }
+
+    pub fn refund(ctx: Context<Refund>) -> Result<()> {
+        refund_handler(ctx)
+    }
 }

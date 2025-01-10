@@ -61,4 +61,12 @@ pub enum BondingCurveError {
     InvalidDeadline,
     #[msg("Auction expired")]
     AuctionExpired,
+
+    // Refund errors
+    #[msg("Cannot refund when auction is graduated or deadline not reached")]
+    InvalidRefundAttempt,
+    #[msg("No bid amount to refund")]
+    NoFundsToRefund,
+    #[msg("Failed to burn NFT during refund")]
+    NftBurnError,
 } 

@@ -5,7 +5,7 @@ use mpl_bubblegum::{
     types::{Collection, MetadataArgs, TokenProgramVersion, TokenStandard},
 };
 use crate::{
-    state::AuctionState,
+    state::{AuctionState, BidState},
     utils::{errors::BondingCurveError, events::{BidPlaced, AuctionGraduated}},
 };
 
@@ -14,6 +14,19 @@ use crate::{
 pub struct PlaceBid<'info> {
     #[account(mut)]
     pub auction: Account<'info, AuctionState>,
+
+    #[account(
+        init_if_needed,
+        payer = payer,
+        space = BidState::LEN,
+        seeds = [
+            b"bid",
+            auction.key().as_ref(),
+            bidder.key().as_ref(),
+        ],
+        bump
+    )]
+    pub bid: Account<'info, BidState>,
 
     #[account(mut)]
     pub bidder: Signer<'info>,
@@ -139,6 +152,13 @@ pub fn place_bid_handler(
     auction.total_value_locked = auction.total_value_locked
         .checked_add(amount)
         .ok_or(BondingCurveError::MathOverflow)?;
+
+    // Update bid state
+    let bid = &mut ctx.accounts.bid;
+    bid.auction = auction.key();
+    bid.bidder = ctx.accounts.bidder.key();
+    bid.amount += amount;
+    bid.bump = ctx.bumps.bid;
 
     // Check for graduation
     if !auction.is_graduated && auction.current_supply >= auction.minimum_items {

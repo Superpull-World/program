@@ -40,4 +40,11 @@ pub struct FundsWithdrawn {
     pub auction: Pubkey,
     pub authority: Pubkey,
     pub amount: u64,
+}
+
+#[event]
+pub struct BidRefunded {
+    pub auction: Pubkey,
+    pub bidder: Pubkey,
+    pub amount: u64,
 } 
