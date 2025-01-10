@@ -1,23 +1,16 @@
 use anchor_lang::prelude::*;
-use mpl_bubblegum::instructions::MintToCollectionV1Cpi;
 
 mod instructions;
 mod state;
 mod utils;
 
 use instructions::*;
-use state::*;
-use utils::*;
 
 declare_id!("EDX7DLx7YwQFFMC9peZh5nDqiB4bKVpa2SpvSfwz4XUG");
 
 #[program]
 pub mod superpull_program {
     use super::*;
-
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        instructions::initialize::handler(ctx)
-    }
 
     pub fn initialize_auction(
         ctx: Context<InitializeAuction>,

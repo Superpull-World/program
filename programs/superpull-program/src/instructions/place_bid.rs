@@ -67,12 +67,13 @@ pub fn handler(ctx: Context<PlaceBid>, amount: u64) -> Result<()> {
         auction.base_price + (auction.price_increment * auction.current_supply)
     };
 
+    let auction = &ctx.accounts.auction;
     require!(
         amount >= current_price,
         BondingCurveError::InsufficientBidAmount
     );
     require!(
-        ctx.accounts.auction.current_supply < ctx.accounts.auction.max_supply,
+        auction.current_supply < auction.max_supply,
         BondingCurveError::MaxSupplyReached
     );
 
@@ -89,10 +90,18 @@ pub fn handler(ctx: Context<PlaceBid>, amount: u64) -> Result<()> {
 
     // Update auction state
     let auction = &mut ctx.accounts.auction;
-    auction.current_supply = auction
+    let new_supply = auction
         .current_supply
         .checked_add(1)
         .ok_or(BondingCurveError::MathOverflow)?;
+    
+    // Double check we haven't exceeded max supply
+    require!(
+        new_supply <= auction.max_supply,
+        BondingCurveError::MaxSupplyReached
+    );
+    
+    auction.current_supply = new_supply;
     auction.total_value_locked = auction
         .total_value_locked
         .checked_add(amount)

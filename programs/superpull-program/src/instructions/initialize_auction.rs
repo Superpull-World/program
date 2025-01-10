@@ -1,5 +1,8 @@
 use anchor_lang::prelude::*;
-use crate::state::AuctionState;
+use crate::{
+    state::AuctionState,
+    utils::events::AuctionInitialized,
+};
 
 #[derive(Accounts)]
 #[instruction(base_price: u64, price_increment: u64, max_supply: u64)]
@@ -51,6 +54,17 @@ pub fn handler(
     auction.minimum_items = minimum_items;
     auction.is_graduated = false;
     auction.bump = ctx.bumps.auction;
+
+    // Emit initialization event
+    emit!(AuctionInitialized {
+        auction: auction.key(),
+        authority: auction.authority,
+        merkle_tree: auction.merkle_tree,
+        base_price,
+        price_increment,
+        max_supply,
+        minimum_items,
+    });
 
     Ok(())
 } 

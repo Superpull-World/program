@@ -1,6 +1,17 @@
 use anchor_lang::prelude::*;
 
 #[event]
+pub struct AuctionInitialized {
+    pub auction: Pubkey,
+    pub authority: Pubkey,
+    pub merkle_tree: Pubkey,
+    pub base_price: u64,
+    pub price_increment: u64,
+    pub max_supply: u64,
+    pub minimum_items: u64,
+}
+
+#[event]
 pub struct PriceUpdate {
     pub auction: Pubkey,
     pub price: u64,

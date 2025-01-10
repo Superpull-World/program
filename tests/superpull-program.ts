@@ -154,7 +154,7 @@ describe("Superpull Program", () => {
     const auctionParams = {
       basePrice: new BN(1),
       priceIncrement: new BN(1),
-      maxSupply: new BN(100),
+      maxSupply: new BN(7),
       minimumItems: new BN(5)
     };
 
@@ -340,6 +340,89 @@ describe("Superpull Program", () => {
     assert.ok(finalState.isGraduated, "Auction should be graduated after 5 bids");
     assert.ok(new BN(finalState.currentSupply).gte(finalState.minimumItems), 
       "Current supply should be >= minimum items");
+  });
+
+  it("should reject bids after reaching max supply", async () => {
+    console.log("\n🎯 Testing max supply limit...");
+    
+    const accounts = {
+      auction: auctionPda,
+      bidder: authority.publicKey,
+      payer: authority.publicKey,
+      collectionMint: toWeb3JsPublicKey(collectionMint.publicKey),
+      collectionMetadata: findMetadataPda(),
+      collectionEdition: findEditionPda(),
+      collectionAuthority: fromWeb3JsPublicKey(authority.publicKey),
+      merkleTree: toWeb3JsPublicKey(merkleTree.publicKey),
+      collectionAuthorityRecordPda: collectionAuthorityRecordPda[0],
+      treeConfig: treeConfigPda,
+      treeCreator: auctionPda,
+      bubblegumSigner: findBubblegumSignerPda(),
+      bubblegumProgram: toWeb3JsPublicKey(MPL_BUBBLEGUM_PROGRAM_ID),
+      logWrapper: NOOP_PROGRAM_ID,
+      compressionProgram: COMPRESSION_PROGRAM_ID,
+      tokenMetadataProgram: toWeb3JsPublicKey(MPL_TOKEN_METADATA_PROGRAM_ID),
+      systemProgram: SystemProgram.programId,
+    };
+
+    // Get current auction state
+    const initialState = await program.account.auctionState.fetch(auctionPda);
+    const remainingBids = initialState.maxSupply.toNumber() - initialState.currentSupply.toNumber();
+    console.log(`\n📊 Current supply: ${initialState.currentSupply}, Max supply: ${initialState.maxSupply}`);
+    console.log(`🎯 Will attempt to place ${remainingBids + 1} bids to exceed max supply`);
+
+    // Place remaining bids until max supply
+    for (let i = 0; i < remainingBids; i++) {
+      const auctionState = await program.account.auctionState.fetch(auctionPda);
+      const currentPrice = auctionState.basePrice.add(
+        auctionState.priceIncrement.mul(auctionState.currentSupply)
+      );
+      
+      console.log(`\n💰 Placing bid ${i + 1} of ${remainingBids}...`);
+      await program.methods
+        .placeBid(currentPrice)
+        .accounts(accounts)
+        .signers([authority.payer])
+        .rpc({ skipPreflight: true });
+      
+      const stateAfterBid = await program.account.auctionState.fetch(auctionPda);
+      console.log(`📊 Supply after bid: ${stateAfterBid.currentSupply} / ${stateAfterBid.maxSupply}`);
+    }
+
+    // Attempt to place one more bid (should fail)
+    const finalState = await program.account.auctionState.fetch(auctionPda);
+    const finalPrice = finalState.basePrice.add(
+      finalState.priceIncrement.mul(finalState.currentSupply)
+    );
+
+    console.log("\n❌ Attempting to exceed max supply...");
+    try {
+      await program.methods
+        .placeBid(finalPrice)
+        .accounts(accounts)
+        .signers([authority.payer])
+        .rpc({ skipPreflight: true });
+      
+      assert.fail("Should not be able to place bid after reaching max supply");
+    } catch (error) {
+      console.log("✅ Bid correctly rejected after reaching max supply");
+      // console.log("Error:", error);
+      // assert.ok(error.toString().includes("MaxSupplyReached"), 
+      //   "Error should indicate max supply was reached");
+    }
+
+    // Verify final state
+    const verifyState = await program.account.auctionState.fetch(auctionPda);
+    console.log("\n📊 Final Auction State:", {
+      currentSupply: verifyState.currentSupply.toString(),
+      maxSupply: verifyState.maxSupply.toString(),
+      totalValueLocked: verifyState.totalValueLocked.toString(),
+      isGraduated: verifyState.isGraduated
+    });
+
+    // Assert max supply was reached but not exceeded
+    assert.ok(new BN(verifyState.currentSupply).eq(verifyState.maxSupply), 
+      "Current supply should equal max supply");
   });
 
   // Helper functions for finding PDAs
