@@ -57,18 +57,6 @@ const COLLECTION_NAME = "SuperPull Collection";
 const COLLECTION_SYMBOL = "SPULL";
 const COLLECTION_URI = "https://assets.superpull.world/collection.json";
 
-// Helper function to create PDAs for better organization
-const createProgramPDAs = (merkleTree: Signer, authority: anchor.Wallet, programId: PublicKey) => {
-  const [auctionPda] = PublicKey.findProgramAddressSync(
-    [
-      Buffer.from("auction"),
-      toWeb3JsPublicKey(merkleTree.publicKey).toBuffer(),
-      authority.publicKey.toBuffer(),
-    ],
-    programId
-  );
-  return { auctionPda };
-};
 
 describe("Superpull Program", () => {
   // Test context setup
@@ -106,7 +94,6 @@ describe("Superpull Program", () => {
     const [_auctionPda] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("auction"),
-        toWeb3JsPublicKey(merkleTree.publicKey).toBuffer(),
         auctionCreator.publicKey.toBuffer(),
       ],
       program.programId

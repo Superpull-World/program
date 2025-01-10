@@ -212,7 +212,6 @@ pub fn place_bid_handler(
     // Define signer seeds
     let signer_seeds: &[&[&[u8]]] = &[&[
         b"auction",
-        auction.merkle_tree.as_ref(),
         auction.authority.as_ref(),
         &[auction.bump],
     ]];

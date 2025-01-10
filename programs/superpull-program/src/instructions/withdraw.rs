@@ -60,7 +60,6 @@ pub fn withdraw_handler(ctx: Context<Withdraw>) -> Result<()> {
     // Transfer tokens from auction account to authority account
     let seeds = &[
         b"auction",
-        auction.merkle_tree.as_ref(),
         auction.authority.as_ref(),
         &[auction.bump],
     ];

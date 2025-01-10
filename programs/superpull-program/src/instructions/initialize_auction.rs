@@ -13,7 +13,6 @@ pub struct InitializeAuction<'info> {
         space = AuctionState::LEN,
         seeds = [
             b"auction",
-            merkle_tree.key().as_ref(),
             authority.key().as_ref(),
         ],
         bump
