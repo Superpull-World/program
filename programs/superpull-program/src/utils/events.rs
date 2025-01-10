@@ -31,4 +31,11 @@ pub struct AuctionGraduated {
     pub auction: Pubkey,
     pub total_items: u64,
     pub total_value_locked: u64,
+}
+
+#[event]
+pub struct FundsWithdrawn {
+    pub auction: Pubkey,
+    pub authority: Pubkey,
+    pub amount: u64,
 } 

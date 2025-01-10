@@ -29,4 +29,8 @@ pub mod superpull_program {
     pub fn place_bid(ctx: Context<PlaceBid>, amount: u64) -> Result<()> {
         instructions::place_bid::handler(ctx, amount)
     }
+
+    pub fn withdraw(ctx: Context<Withdraw>) -> Result<()> {
+        instructions::withdraw::handler(ctx)
+    }
 }

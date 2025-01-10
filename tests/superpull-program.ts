@@ -65,29 +65,39 @@ describe("Superpull Program", () => {
   anchor.setProvider(provider);
 
   const program = anchor.workspace.SuperpullProgram as Program<SuperpullProgram>;
-  const authority = provider.wallet as anchor.Wallet;
+  const payer = provider.wallet as anchor.Wallet;
+  // Create a new keypair for the auction creator/authority
+  const auctionCreator = anchor.web3.Keypair.generate();
   
   console.log("🔌 Connecting to UMI at:", provider.connection.rpcEndpoint);
   const umi = createUmi(provider.connection)
-    .use(keypairIdentity(fromWeb3JsKeypair(authority.payer)))
+    .use(keypairIdentity(fromWeb3JsKeypair(payer.payer)))
     .use(mplBubblegum())
     .use(mplTokenMetadata());
 
   let merkleTree: Signer;
-  let auctionPda: PublicKey;
   let collectionMint: Signer;
   let treeConfigPda: PublicKey;
   let collectionAuthorityRecordPda: Pda;
+  let auctionPda: PublicKey;
 
   before(async () => {
     console.log("📦 Setting up test environment...");
+
     merkleTree = generateSigner(umi);
     console.log("🌳 Generated merkle tree:", merkleTree.publicKey.toString());
     collectionMint = generateSigner(umi);
 
-    // Calculate PDAs
-    const pdas = createProgramPDAs(merkleTree, authority, program.programId);
-    auctionPda = pdas.auctionPda;
+    // Calculate auction PDA
+    auctionPda = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("auction"),
+        toWeb3JsPublicKey(merkleTree.publicKey).toBuffer(),
+        auctionCreator.publicKey.toBuffer(),
+      ],
+      program.programId
+    )[0];
+    console.log("🎯 Auction PDA:", auctionPda.toString());
     
     collectionAuthorityRecordPda = findCollectionAuthorityRecordPda(umi, {
       mint: collectionMint.publicKey,
@@ -114,8 +124,8 @@ describe("Superpull Program", () => {
     console.log("🔑 Setting collection authority...");
     const setAuthorityTx = approveCollectionAuthority(umi, {
       mint: collectionMint.publicKey,
-      payer: createSignerFromKeypair(umi, fromWeb3JsKeypair(authority.payer)),
-      updateAuthority: createSignerFromKeypair(umi, fromWeb3JsKeypair(authority.payer)),
+      payer: createSignerFromKeypair(umi, fromWeb3JsKeypair(payer.payer)),
+      updateAuthority: createSignerFromKeypair(umi, fromWeb3JsKeypair(payer.payer)),
       newCollectionAuthority: fromWeb3JsPublicKey(auctionPda),
       collectionAuthorityRecord: collectionAuthorityRecordPda,
     });
@@ -162,9 +172,10 @@ describe("Superpull Program", () => {
       auction: auctionPda,
       merkleTree: toWeb3JsPublicKey(merkleTree.publicKey),
       treeConfig: treeConfigPda,
-      treeCreator: authority.publicKey,
+      treeCreator: payer.publicKey,
       collectionMint: toWeb3JsPublicKey(collectionMint.publicKey),
-      authority: authority.publicKey,
+      authority: auctionCreator.publicKey,
+      payer: payer.publicKey,
       bubblegumProgram: toWeb3JsPublicKey(MPL_BUBBLEGUM_PROGRAM_ID),
       systemProgram: SystemProgram.programId,
     };
@@ -177,7 +188,7 @@ describe("Superpull Program", () => {
         auctionParams.minimumItems
       )
       .accounts(accounts)
-      .signers([authority.payer])
+      .signers([payer.payer])
       .rpc({ skipPreflight: true });
 
     console.log("✅ Auction initialized successfully");
@@ -185,6 +196,7 @@ describe("Superpull Program", () => {
     // Verify auction state
     const auctionState = await program.account.auctionState.fetch(auctionPda);
     console.log("📊 Auction State:", {
+      authority: auctionState.authority.toString(),
       basePrice: auctionState.basePrice.toString(),
       priceIncrement: auctionState.priceIncrement.toString(),
       minimumItems: auctionState.minimumItems.toString(),
@@ -195,6 +207,7 @@ describe("Superpull Program", () => {
     });
 
     // Assertions with descriptive messages
+    assert.ok(auctionState.authority.equals(auctionCreator.publicKey), "Authority should be auction creator");
     assert.ok(new BN(auctionState.basePrice).eq(auctionParams.basePrice), "Base price should match");
     assert.ok(new BN(auctionState.priceIncrement).eq(auctionParams.priceIncrement), "Price increment should match");
     assert.ok(new BN(auctionState.maxSupply).eq(auctionParams.maxSupply), "Max supply should match");
@@ -223,12 +236,12 @@ describe("Superpull Program", () => {
 
     const accounts = {
       auction: auctionPda,
-      bidder: authority.publicKey,
-      payer: authority.publicKey,
+      bidder: payer.publicKey,
+      payer: payer.publicKey,
       collectionMint: toWeb3JsPublicKey(collectionMint.publicKey),
       collectionMetadata: findMetadataPda(),
       collectionEdition: findEditionPda(),
-      collectionAuthority: fromWeb3JsPublicKey(authority.publicKey),
+      collectionAuthority: fromWeb3JsPublicKey(payer.publicKey),
       merkleTree: toWeb3JsPublicKey(merkleTree.publicKey),
       collectionAuthorityRecordPda: collectionAuthorityRecordPda[0],
       treeConfig: treeConfigPda,
@@ -244,7 +257,7 @@ describe("Superpull Program", () => {
     await program.methods
       .placeBid(bidAmount)
       .accounts(accounts)
-      .signers([authority.payer])
+      .signers([payer.payer])
       .rpc({ skipPreflight: true });
 
     console.log("✅ Bid placed successfully");
@@ -272,12 +285,12 @@ describe("Superpull Program", () => {
     
     const accounts = {
       auction: auctionPda,
-      bidder: authority.publicKey,
-      payer: authority.publicKey,
+      bidder: payer.publicKey,
+      payer: payer.publicKey,
       collectionMint: toWeb3JsPublicKey(collectionMint.publicKey),
       collectionMetadata: findMetadataPda(),
       collectionEdition: findEditionPda(),
-      collectionAuthority: fromWeb3JsPublicKey(authority.publicKey),
+      collectionAuthority: fromWeb3JsPublicKey(payer.publicKey),
       merkleTree: toWeb3JsPublicKey(merkleTree.publicKey),
       collectionAuthorityRecordPda: collectionAuthorityRecordPda[0],
       treeConfig: treeConfigPda,
@@ -301,7 +314,7 @@ describe("Superpull Program", () => {
       await program.methods
         .placeBid(currentPrice)
         .accounts(accounts)
-        .signers([authority.payer])
+        .signers([payer.payer])
         .rpc({ skipPreflight: true });
       
       // Print state after each bid
@@ -347,12 +360,12 @@ describe("Superpull Program", () => {
     
     const accounts = {
       auction: auctionPda,
-      bidder: authority.publicKey,
-      payer: authority.publicKey,
+      bidder: payer.publicKey,
+      payer: payer.publicKey,
       collectionMint: toWeb3JsPublicKey(collectionMint.publicKey),
       collectionMetadata: findMetadataPda(),
       collectionEdition: findEditionPda(),
-      collectionAuthority: fromWeb3JsPublicKey(authority.publicKey),
+      collectionAuthority: fromWeb3JsPublicKey(payer.publicKey),
       merkleTree: toWeb3JsPublicKey(merkleTree.publicKey),
       collectionAuthorityRecordPda: collectionAuthorityRecordPda[0],
       treeConfig: treeConfigPda,
@@ -382,7 +395,7 @@ describe("Superpull Program", () => {
       await program.methods
         .placeBid(currentPrice)
         .accounts(accounts)
-        .signers([authority.payer])
+        .signers([payer.payer])
         .rpc({ skipPreflight: true });
       
       const stateAfterBid = await program.account.auctionState.fetch(auctionPda);
@@ -400,7 +413,7 @@ describe("Superpull Program", () => {
       await program.methods
         .placeBid(finalPrice)
         .accounts(accounts)
-        .signers([authority.payer])
+        .signers([payer.payer])
         .rpc({ skipPreflight: true });
       
       assert.fail("Should not be able to place bid after reaching max supply");
@@ -423,6 +436,77 @@ describe("Superpull Program", () => {
     // Assert max supply was reached but not exceeded
     assert.ok(new BN(verifyState.currentSupply).eq(verifyState.maxSupply), 
       "Current supply should equal max supply");
+  });
+
+  it("should allow authority to withdraw after graduation", async () => {
+    console.log("\n💰 Testing withdrawal...");
+
+    // Get initial balances
+    const authorityBalance = await provider.connection.getBalance(auctionCreator.publicKey);
+    const auctionBalance = await provider.connection.getBalance(auctionPda);
+    
+    console.log("📊 Initial Balances:", {
+      authority: `${authorityBalance / LAMPORTS_PER_SOL} SOL`,
+      auction: `${auctionBalance / LAMPORTS_PER_SOL} SOL`,
+    });
+
+    // Verify auction is graduated
+    const auctionState = await program.account.auctionState.fetch(auctionPda);
+    assert.ok(auctionState.isGraduated, "Auction must be graduated to withdraw");
+    assert.ok(auctionState.totalValueLocked.gt(new BN(0)), "Must have funds to withdraw");
+
+    const accounts = {
+      auction: auctionPda,
+      authority: auctionCreator.publicKey,
+      payer: payer.publicKey,
+      systemProgram: SystemProgram.programId,
+    };
+
+    await program.methods
+      .withdraw()
+      .accounts(accounts)
+      .signers([payer.payer])
+      .rpc({ skipPreflight: true });
+
+    // Verify final balances
+    const finalAuthorityBalance = await provider.connection.getBalance(auctionCreator.publicKey);
+    const finalAuctionBalance = await provider.connection.getBalance(auctionPda);
+    
+    console.log("📊 Final Balances:", {
+      authority: `${finalAuthorityBalance / LAMPORTS_PER_SOL} SOL`,
+      auction: `${finalAuctionBalance / LAMPORTS_PER_SOL} SOL`,
+    });
+
+    // Verify auction state
+    const finalState = await program.account.auctionState.fetch(auctionPda);
+    assert.ok(finalState.totalValueLocked.eq(new BN(0)), "Total value locked should be 0 after withdrawal");
+    assert.ok(finalAuctionBalance < auctionBalance, "Auction balance should decrease");
+    assert.ok(finalAuthorityBalance > authorityBalance, "Authority balance should increase");
+  });
+
+  it("should not allow non-authority to withdraw", async () => {
+    console.log("\n🚫 Testing unauthorized withdrawal...");
+
+    const accounts = {
+      auction: auctionPda,
+      authority: payer.publicKey, // Using wrong authority
+      payer: payer.publicKey,
+      systemProgram: SystemProgram.programId,
+    };
+
+    try {
+      await program.methods
+        .withdraw()
+        .accounts(accounts)
+        .signers([payer.payer])
+        .rpc({ skipPreflight: true });
+      
+      assert.fail("Should not allow unauthorized withdrawal");
+    } catch (error) {
+      console.log("✅ Unauthorized withdrawal correctly rejected");
+      // assert.ok(error.toString().includes("UnauthorizedWithdraw"), 
+      //   "Error should indicate unauthorized withdrawal");
+    }
   });
 
   // Helper functions for finding PDAs

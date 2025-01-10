@@ -8,4 +8,8 @@ pub enum BondingCurveError {
     MaxSupplyReached,
     #[msg("Math overflow")]
     MathOverflow,
+    #[msg("Auction must be graduated to withdraw")]
+    NotGraduated,
+    #[msg("Only authority can withdraw funds")]
+    UnauthorizedWithdraw,
 } 

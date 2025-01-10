@@ -9,7 +9,7 @@ use crate::{
 pub struct InitializeAuction<'info> {
     #[account(
         init,
-        payer = authority,
+        payer = payer,
         space = AuctionState::LEN,
         seeds = [
             b"auction",
@@ -27,9 +27,14 @@ pub struct InitializeAuction<'info> {
     #[account(mut)]
     pub collection_mint: AccountInfo<'info>,
 
-    /// The authority who can manage the auction
+    /// The authority who will manage the auction (doesn't need to be signer)
+    /// CHECK: Just storing this pubkey
+    #[account()]
+    pub authority: AccountInfo<'info>,
+
+    /// The account that will pay for the initialization
     #[account(mut)]
-    pub authority: Signer<'info>,
+    pub payer: Signer<'info>,
 
     /// CHECK: Validated by Bubblegum program
     pub bubblegum_program: AccountInfo<'info>,
