@@ -11,6 +11,7 @@ pub struct AuctionState {
     pub max_supply: u64,
     pub total_value_locked: u64,
     pub minimum_items: u64,
+    pub deadline: i64,
     pub is_graduated: bool,
     pub bump: u8,
 }
@@ -26,6 +27,7 @@ impl AuctionState {
         8 + // max_supply
         8 + // total_value_locked
         8 + // minimum_items
+        8 + // deadline
         1 + // is_graduated
         1; // bump
 } 

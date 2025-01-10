@@ -50,7 +50,8 @@ pub fn initialize_auction_handler(
     base_price: u64,
     price_increment: u64,
     max_supply: u64,
-    minimum_items: u64
+    minimum_items: u64,
+    deadline: i64,
 ) -> Result<()> {
     // Validate input parameters
     require!(base_price > 0, BondingCurveError::InvalidBasePrice);
@@ -59,6 +60,13 @@ pub fn initialize_auction_handler(
     require!(
         minimum_items > 0 && minimum_items <= max_supply,
         BondingCurveError::InvalidMinimumItems
+    );
+
+    // Validate deadline is in the future
+    let current_time = Clock::get()?.unix_timestamp;
+    require!(
+        deadline > current_time,
+        BondingCurveError::InvalidDeadline
     );
 
     // Validate merkle tree configuration
@@ -84,6 +92,7 @@ pub fn initialize_auction_handler(
     auction.max_supply = max_supply;
     auction.total_value_locked = 0;
     auction.minimum_items = minimum_items;
+    auction.deadline = deadline;
     auction.is_graduated = false;
     auction.bump = ctx.bumps.auction;
 
@@ -97,6 +106,7 @@ pub fn initialize_auction_handler(
         price_increment,
         max_supply,
         minimum_items,
+        deadline,
     });
 
     Ok(())

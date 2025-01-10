@@ -88,6 +88,13 @@ pub fn place_bid_handler(
 
     let auction = &ctx.accounts.auction;
     
+    // Check if auction has expired
+    let current_time = Clock::get()?.unix_timestamp;
+    require!(
+        current_time <= auction.deadline || auction.current_supply >= auction.minimum_items,
+        BondingCurveError::AuctionExpired
+    );
+    
     // Check supply limit
     require!(
         auction.current_supply < auction.max_supply,

@@ -18,8 +18,9 @@ pub mod superpull_program {
         price_increment: u64,
         max_supply: u64,
         minimum_items: u64,
+        deadline: i64,
     ) -> Result<()> {
-        initialize_auction_handler(ctx, base_price, price_increment, max_supply, minimum_items)
+        initialize_auction_handler(ctx, base_price, price_increment, max_supply, minimum_items, deadline)
     }
 
     pub fn get_current_price(ctx: Context<GetCurrentPrice>) -> Result<()> {

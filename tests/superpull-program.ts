@@ -236,7 +236,8 @@ describe("Superpull Program", () => {
       basePrice: new BN(1),
       priceIncrement: new BN(1),
       maxSupply: new BN(7),
-      minimumItems: new BN(5)
+      minimumItems: new BN(5),
+      deadline: new BN(Math.floor(Date.now() / 1000) + 24 * 60 * 60) // 24 hours from now
     };
 
     const accounts = {
@@ -257,7 +258,8 @@ describe("Superpull Program", () => {
         auctionParams.basePrice,
         auctionParams.priceIncrement,
         auctionParams.maxSupply,
-        auctionParams.minimumItems
+        auctionParams.minimumItems,
+        auctionParams.deadline
       )
       .accounts(accounts)
       .signers([payer.payer])
@@ -275,6 +277,7 @@ describe("Superpull Program", () => {
       maxSupply: auctionState.maxSupply.toString(),
       currentSupply: auctionState.currentSupply.toString(),
       totalValueLocked: auctionState.totalValueLocked.toString(),
+      deadline: auctionState.deadline.toString(),
       isGraduated: auctionState.isGraduated
     });
 
@@ -284,6 +287,7 @@ describe("Superpull Program", () => {
     assert.ok(new BN(auctionState.priceIncrement).eq(auctionParams.priceIncrement), "Price increment should match");
     assert.ok(new BN(auctionState.maxSupply).eq(auctionParams.maxSupply), "Max supply should match");
     assert.ok(new BN(auctionState.minimumItems).eq(auctionParams.minimumItems), "Minimum items should match");
+    assert.ok(new BN(auctionState.deadline).eq(auctionParams.deadline), "Deadline should match");
     assert.ok(new BN(auctionState.currentSupply).eq(new BN(0)), "Initial supply should be 0");
     assert.ok(new BN(auctionState.totalValueLocked).eq(new BN(0)), "Initial TVL should be 0");
     assert.ok(!auctionState.isGraduated, "Auction should not be graduated initially");

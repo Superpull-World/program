@@ -10,6 +10,7 @@ pub struct AuctionInitialized {
     pub price_increment: u64,
     pub max_supply: u64,
     pub minimum_items: u64,
+    pub deadline: i64,
 }
 
 #[event]

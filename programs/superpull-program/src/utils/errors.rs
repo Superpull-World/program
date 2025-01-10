@@ -55,4 +55,10 @@ pub enum BondingCurveError {
     InvalidAccountOwner,
     #[msg("Account is not rent exempt")]
     NotRentExempt,
+
+    // Auction expiration errors
+    #[msg("Invalid deadline")]
+    InvalidDeadline,
+    #[msg("Auction expired")]
+    AuctionExpired,
 } 
