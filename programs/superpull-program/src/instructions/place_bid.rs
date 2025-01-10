@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token;
 use mpl_bubblegum::{
     instructions::{MintToCollectionV1Cpi, MintToCollectionV1CpiAccounts, MintToCollectionV1InstructionArgs},
     types::{Collection, MetadataArgs, TokenProgramVersion, TokenStandard},
@@ -9,6 +10,7 @@ use crate::{
 };
 
 #[derive(Accounts)]
+#[instruction(amount: u64)]
 pub struct PlaceBid<'info> {
     #[account(mut)]
     pub auction: Account<'info, AuctionState>,
@@ -18,6 +20,16 @@ pub struct PlaceBid<'info> {
 
     #[account(mut)]
     pub payer: Signer<'info>,
+
+    /// The bidder's token account to transfer from
+    /// CHECK: Validated through token program CPI
+    #[account(mut)]
+    pub bidder_token_account: AccountInfo<'info>,
+
+    /// The auction's token account to receive tokens
+    /// CHECK: Validated through token program CPI
+    #[account(mut)]
+    pub auction_token_account: AccountInfo<'info>,
 
     /// CHECK: Validated by Bubblegum program
     #[account(mut)]
@@ -59,9 +71,14 @@ pub struct PlaceBid<'info> {
     /// CHECK: Validated by Bubblegum program
     pub bubblegum_program: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
+    /// CHECK: Validated by token program
+    pub token_program: AccountInfo<'info>,
 }
 
-pub fn handler(ctx: Context<PlaceBid>, amount: u64) -> Result<()> {
+pub fn place_bid_handler(
+    ctx: Context<PlaceBid>,
+    amount: u64,
+) -> Result<()> {
     // Validate bid amount
     require!(amount > 0, BondingCurveError::InvalidBidAmount);
     require!(
@@ -92,16 +109,17 @@ pub fn handler(ctx: Context<PlaceBid>, amount: u64) -> Result<()> {
         BondingCurveError::InsufficientBidAmount
     );
 
-    // Transfer SOL from bidder to auction account
-    let cpi_context = CpiContext::new(
-        ctx.accounts.system_program.to_account_info(),
-        anchor_lang::system_program::Transfer {
-            from: ctx.accounts.bidder.to_account_info(),
-            to: ctx.accounts.auction.to_account_info(),
-        },
+    // Transfer tokens from bidder to auction account
+    let cpi_accounts = token::Transfer {
+        from: ctx.accounts.bidder_token_account.to_account_info(),
+        to: ctx.accounts.auction_token_account.to_account_info(),
+        authority: ctx.accounts.bidder.to_account_info(),
+    };
+    let cpi_ctx = CpiContext::new(
+        ctx.accounts.token_program.to_account_info(),
+        cpi_accounts,
     );
-
-    anchor_lang::system_program::transfer(cpi_context, amount)?;
+    token::transfer(cpi_ctx, amount)?;
 
     // Update auction state
     let auction = &mut ctx.accounts.auction;

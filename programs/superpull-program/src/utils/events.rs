@@ -5,6 +5,7 @@ pub struct AuctionInitialized {
     pub auction: Pubkey,
     pub authority: Pubkey,
     pub merkle_tree: Pubkey,
+    pub token_mint: Pubkey,
     pub base_price: u64,
     pub price_increment: u64,
     pub max_supply: u64,

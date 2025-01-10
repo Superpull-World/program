@@ -27,6 +27,10 @@ pub struct InitializeAuction<'info> {
     #[account(mut)]
     pub collection_mint: AccountInfo<'info>,
 
+    /// The mint of the token that will be accepted for payments
+    /// CHECK: Just storing this pubkey
+    pub token_mint: AccountInfo<'info>,
+
     /// The authority who will manage the auction (doesn't need to be signer)
     /// CHECK: Just storing this pubkey
     #[account()]
@@ -41,7 +45,7 @@ pub struct InitializeAuction<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(
+pub fn initialize_auction_handler(
     ctx: Context<InitializeAuction>,
     base_price: u64,
     price_increment: u64,
@@ -73,6 +77,7 @@ pub fn handler(
     let auction = &mut ctx.accounts.auction;
     auction.authority = ctx.accounts.authority.key();
     auction.merkle_tree = ctx.accounts.merkle_tree.key();
+    auction.token_mint = ctx.accounts.token_mint.key();
     auction.base_price = base_price;
     auction.price_increment = price_increment;
     auction.current_supply = 0;
@@ -87,6 +92,7 @@ pub fn handler(
         auction: auction.key(),
         authority: ctx.accounts.authority.key(),
         merkle_tree: ctx.accounts.merkle_tree.key(),
+        token_mint: ctx.accounts.token_mint.key(),
         base_price,
         price_increment,
         max_supply,

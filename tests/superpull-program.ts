@@ -36,6 +36,17 @@ import {
   findCollectionAuthorityRecordPda,
   approveCollectionAuthority,
 } from "@metaplex-foundation/mpl-token-metadata";
+import {
+  TOKEN_PROGRAM_ID,
+  createMint,
+  createAccount as createTokenAccount,
+  mintTo,
+  getAccount as getTokenAccount,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddress,
+  createInitializeAccountInstruction,
+  createAssociatedTokenAccountInstruction,
+} from "@solana/spl-token";
 
 // Constants for better readability and maintenance
 const COMPRESSION_PROGRAM_ID = new PublicKey("cmtDvXumGCrqC1Age74AVPhSRVXJMd8PJS91L8KbNCK");
@@ -80,6 +91,9 @@ describe("Superpull Program", () => {
   let treeConfigPda: PublicKey;
   let collectionAuthorityRecordPda: Pda;
   let auctionPda: PublicKey;
+  let tokenMint: PublicKey;
+  let bidderTokenAccount: PublicKey;
+  let auctionTokenAccount: PublicKey;
 
   before(async () => {
     console.log("📦 Setting up test environment...");
@@ -88,16 +102,73 @@ describe("Superpull Program", () => {
     console.log("🌳 Generated merkle tree:", merkleTree.publicKey.toString());
     collectionMint = generateSigner(umi);
 
-    // Calculate auction PDA
-    auctionPda = PublicKey.findProgramAddressSync(
+    // Calculate auction PDA first
+    const [_auctionPda] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("auction"),
         toWeb3JsPublicKey(merkleTree.publicKey).toBuffer(),
         auctionCreator.publicKey.toBuffer(),
       ],
       program.programId
-    )[0];
+    );
+    auctionPda = _auctionPda;
     console.log("🎯 Auction PDA:", auctionPda.toString());
+    
+    // Create token mint
+    tokenMint = await createMint(
+      provider.connection,
+      payer.payer, // payer
+      payer.publicKey, // mint authority
+      null, // freeze authority
+      9 // decimals
+    );
+    console.log("💰 Created token mint:", tokenMint.toString());
+
+    // Create bidder's token account
+    bidderTokenAccount = await createTokenAccount(
+      provider.connection,
+      payer.payer,
+      tokenMint,
+      payer.publicKey
+    );
+    console.log("👤 Created bidder token account:", bidderTokenAccount.toString());
+
+    // Create auction's token account
+    auctionTokenAccount = await getAssociatedTokenAddress(
+      tokenMint,
+      auctionPda,
+      true // allowOwnerOffCurve: true - required for PDAs
+    );
+    console.log("🎯 Auction token account address:", auctionTokenAccount.toString());
+
+    // Create the associated token account for the auction PDA
+    const ataIx = createAssociatedTokenAccountInstruction(
+      payer.publicKey, // payer
+      auctionTokenAccount, // ata
+      auctionPda, // owner
+      tokenMint, // mint
+    );
+
+    try {
+      await provider.sendAndConfirm(new anchor.web3.Transaction().add(ataIx), [payer.payer]);
+      console.log("✅ Created auction token account");
+    } catch (error) {
+      if (!error.toString().includes("already in use")) {
+        throw error;
+      }
+      console.log("ℹ️ Auction token account already exists");
+    }
+
+    // Mint some tokens to bidder
+    await mintTo(
+      provider.connection,
+      payer.payer,
+      tokenMint,
+      bidderTokenAccount,
+      payer.publicKey,
+      1000000000 // 1000 tokens with 9 decimals
+    );
+    console.log("💸 Minted tokens to bidder");
     
     collectionAuthorityRecordPda = findCollectionAuthorityRecordPda(umi, {
       mint: collectionMint.publicKey,
@@ -174,6 +245,7 @@ describe("Superpull Program", () => {
       treeConfig: treeConfigPda,
       treeCreator: payer.publicKey,
       collectionMint: toWeb3JsPublicKey(collectionMint.publicKey),
+      tokenMint: tokenMint,
       authority: auctionCreator.publicKey,
       payer: payer.publicKey,
       bubblegumProgram: toWeb3JsPublicKey(MPL_BUBBLEGUM_PROGRAM_ID),
@@ -221,23 +293,12 @@ describe("Superpull Program", () => {
     console.log("💰 Placing bid...");
     const bidAmount = new BN(1); // Base price + increment
 
-    // Debug account states
-    const accountStates = {
-      collectionAuthority: await provider.connection.getAccountInfo(toWeb3JsPublicKey(collectionAuthorityRecordPda[0])),
-      collectionMetadata: await provider.connection.getAccountInfo(findMetadataPda()),
-      collectionEdition: await provider.connection.getAccountInfo(findEditionPda()),
-      bubblegumSigner: await provider.connection.getAccountInfo(findBubblegumSignerPda())
-    };
-
-    // Log account states for debugging
-    Object.entries(accountStates).forEach(([key, value]) => {
-      console.log(`📝 ${key} Account:`, value ? "Exists" : "Not found");
-    });
-
     const accounts = {
       auction: auctionPda,
       bidder: payer.publicKey,
       payer: payer.publicKey,
+      bidderTokenAccount: bidderTokenAccount,
+      auctionTokenAccount: auctionTokenAccount,
       collectionMint: toWeb3JsPublicKey(collectionMint.publicKey),
       collectionMetadata: findMetadataPda(),
       collectionEdition: findEditionPda(),
@@ -252,7 +313,17 @@ describe("Superpull Program", () => {
       compressionProgram: COMPRESSION_PROGRAM_ID,
       tokenMetadataProgram: toWeb3JsPublicKey(MPL_TOKEN_METADATA_PROGRAM_ID),
       systemProgram: SystemProgram.programId,
+      tokenProgram: TOKEN_PROGRAM_ID,
     };
+
+    // Get initial token balances
+    const initialBidderBalance = (await getTokenAccount(provider.connection, bidderTokenAccount)).amount;
+    const initialAuctionBalance = (await getTokenAccount(provider.connection, auctionTokenAccount)).amount;
+    
+    console.log("📊 Initial Token Balances:", {
+      bidder: initialBidderBalance.toString(),
+      auction: initialAuctionBalance.toString(),
+    });
 
     await program.methods
       .placeBid(bidAmount)
@@ -261,6 +332,23 @@ describe("Superpull Program", () => {
       .rpc({ skipPreflight: true });
 
     console.log("✅ Bid placed successfully");
+
+    // Get final token balances
+    const finalBidderBalance = (await getTokenAccount(provider.connection, bidderTokenAccount)).amount;
+    const finalAuctionBalance = (await getTokenAccount(provider.connection, auctionTokenAccount)).amount;
+    
+    console.log("📊 Final Token Balances:", {
+      bidder: finalBidderBalance.toString(),
+      auction: finalAuctionBalance.toString(),
+    });
+
+    // Verify token transfer
+    assert.ok(finalBidderBalance < initialBidderBalance, "Bidder balance should decrease");
+    assert.ok(finalAuctionBalance > initialAuctionBalance, "Auction balance should increase");
+    assert.ok(
+      BigInt(finalAuctionBalance) - BigInt(initialAuctionBalance) === BigInt(bidAmount.toString()),
+      "Auction should receive exact bid amount"
+    );
 
     // Print auction state after bid
     const auctionStateAfterBid = await program.account.auctionState.fetch(auctionPda);
@@ -287,6 +375,8 @@ describe("Superpull Program", () => {
       auction: auctionPda,
       bidder: payer.publicKey,
       payer: payer.publicKey,
+      bidderTokenAccount: bidderTokenAccount,
+      auctionTokenAccount: auctionTokenAccount,
       collectionMint: toWeb3JsPublicKey(collectionMint.publicKey),
       collectionMetadata: findMetadataPda(),
       collectionEdition: findEditionPda(),
@@ -301,6 +391,7 @@ describe("Superpull Program", () => {
       compressionProgram: COMPRESSION_PROGRAM_ID,
       tokenMetadataProgram: toWeb3JsPublicKey(MPL_TOKEN_METADATA_PROGRAM_ID),
       systemProgram: SystemProgram.programId,
+      tokenProgram: TOKEN_PROGRAM_ID,
     };
 
     // Place 4 more bids
@@ -311,11 +402,20 @@ describe("Superpull Program", () => {
       );
       
       console.log(`\n💰 Placing bid ${i + 2} of 5...`);
+      
+      // Get token balances before bid
+      const beforeBidderBalance = (await getTokenAccount(provider.connection, bidderTokenAccount)).amount;
+      const beforeAuctionBalance = (await getTokenAccount(provider.connection, auctionTokenAccount)).amount;
+      
       await program.methods
         .placeBid(currentPrice)
         .accounts(accounts)
         .signers([payer.payer])
         .rpc({ skipPreflight: true });
+      
+      // Get token balances after bid
+      const afterBidderBalance = (await getTokenAccount(provider.connection, bidderTokenAccount)).amount;
+      const afterAuctionBalance = (await getTokenAccount(provider.connection, auctionTokenAccount)).amount;
       
       // Print state after each bid
       const stateAfterBid = await program.account.auctionState.fetch(auctionPda);
@@ -328,16 +428,17 @@ describe("Superpull Program", () => {
         totalValueLocked: stateAfterBid.totalValueLocked.toString(),
         isGraduated: stateAfterBid.isGraduated,
         currentPrice: newPrice.toString(),
-        currentPriceInSOL: `${newPrice.toNumber() / LAMPORTS_PER_SOL} SOL`
+        bidderBalanceChange: (BigInt(beforeBidderBalance) - BigInt(afterBidderBalance)).toString(),
+        auctionBalanceChange: (BigInt(afterAuctionBalance) - BigInt(beforeAuctionBalance)).toString(),
       });
     }
 
-    
     // Verify final state
     const finalState = await program.account.auctionState.fetch(auctionPda);
     const currentPrice = finalState.basePrice.add(
       finalState.priceIncrement.mul(finalState.currentSupply)
     );
+    
     console.log("\n🎓 Final Auction State:", {
       basePrice: finalState.basePrice.toString(),
       priceIncrement: finalState.priceIncrement.toString(),
@@ -362,6 +463,8 @@ describe("Superpull Program", () => {
       auction: auctionPda,
       bidder: payer.publicKey,
       payer: payer.publicKey,
+      bidderTokenAccount: bidderTokenAccount,
+      auctionTokenAccount: auctionTokenAccount,
       collectionMint: toWeb3JsPublicKey(collectionMint.publicKey),
       collectionMetadata: findMetadataPda(),
       collectionEdition: findEditionPda(),
@@ -376,6 +479,7 @@ describe("Superpull Program", () => {
       compressionProgram: COMPRESSION_PROGRAM_ID,
       tokenMetadataProgram: toWeb3JsPublicKey(MPL_TOKEN_METADATA_PROGRAM_ID),
       systemProgram: SystemProgram.programId,
+      tokenProgram: TOKEN_PROGRAM_ID,
     };
 
     // Get current auction state
@@ -392,14 +496,27 @@ describe("Superpull Program", () => {
       );
       
       console.log(`\n💰 Placing bid ${i + 1} of ${remainingBids}...`);
+      
+      // Get token balances before bid
+      const beforeBidderBalance = (await getTokenAccount(provider.connection, bidderTokenAccount)).amount;
+      const beforeAuctionBalance = (await getTokenAccount(provider.connection, auctionTokenAccount)).amount;
+      
       await program.methods
         .placeBid(currentPrice)
         .accounts(accounts)
         .signers([payer.payer])
         .rpc({ skipPreflight: true });
       
+      // Get token balances after bid
+      const afterBidderBalance = (await getTokenAccount(provider.connection, bidderTokenAccount)).amount;
+      const afterAuctionBalance = (await getTokenAccount(provider.connection, auctionTokenAccount)).amount;
+      
       const stateAfterBid = await program.account.auctionState.fetch(auctionPda);
       console.log(`📊 Supply after bid: ${stateAfterBid.currentSupply} / ${stateAfterBid.maxSupply}`);
+      console.log(`💰 Token transfer:`, {
+        bidderBalanceChange: (BigInt(beforeBidderBalance) - BigInt(afterBidderBalance)).toString(),
+        auctionBalanceChange: (BigInt(afterAuctionBalance) - BigInt(beforeAuctionBalance)).toString(),
+      });
     }
 
     // Attempt to place one more bid (should fail)
@@ -419,9 +536,6 @@ describe("Superpull Program", () => {
       assert.fail("Should not be able to place bid after reaching max supply");
     } catch (error) {
       console.log("✅ Bid correctly rejected after reaching max supply");
-      // console.log("Error:", error);
-      // assert.ok(error.toString().includes("MaxSupplyReached"), 
-      //   "Error should indicate max supply was reached");
     }
 
     // Verify final state
@@ -441,13 +555,22 @@ describe("Superpull Program", () => {
   it("should allow authority to withdraw after graduation", async () => {
     console.log("\n💰 Testing withdrawal...");
 
+    // Create authority's token account
+    const authorityTokenAccount = await createTokenAccount(
+      provider.connection,
+      payer.payer,
+      tokenMint,
+      auctionCreator.publicKey
+    );
+    console.log("👤 Created authority token account:", authorityTokenAccount.toString());
+
     // Get initial balances
-    const authorityBalance = await provider.connection.getBalance(auctionCreator.publicKey);
-    const auctionBalance = await provider.connection.getBalance(auctionPda);
+    const initialAuthorityBalance = (await getTokenAccount(provider.connection, authorityTokenAccount)).amount;
+    const initialAuctionBalance = (await getTokenAccount(provider.connection, auctionTokenAccount)).amount;
     
-    console.log("📊 Initial Balances:", {
-      authority: `${authorityBalance / LAMPORTS_PER_SOL} SOL`,
-      auction: `${auctionBalance / LAMPORTS_PER_SOL} SOL`,
+    console.log("📊 Initial Token Balances:", {
+      authority: initialAuthorityBalance.toString(),
+      auction: initialAuctionBalance.toString(),
     });
 
     // Verify auction is graduated
@@ -458,8 +581,11 @@ describe("Superpull Program", () => {
     const accounts = {
       auction: auctionPda,
       authority: auctionCreator.publicKey,
+      authorityTokenAccount: authorityTokenAccount,
+      auctionTokenAccount: auctionTokenAccount,
       payer: payer.publicKey,
       systemProgram: SystemProgram.programId,
+      tokenProgram: TOKEN_PROGRAM_ID,
     };
 
     await program.methods
@@ -469,29 +595,45 @@ describe("Superpull Program", () => {
       .rpc({ skipPreflight: true });
 
     // Verify final balances
-    const finalAuthorityBalance = await provider.connection.getBalance(auctionCreator.publicKey);
-    const finalAuctionBalance = await provider.connection.getBalance(auctionPda);
+    const finalAuthorityBalance = (await getTokenAccount(provider.connection, authorityTokenAccount)).amount;
+    const finalAuctionBalance = (await getTokenAccount(provider.connection, auctionTokenAccount)).amount;
     
-    console.log("📊 Final Balances:", {
-      authority: `${finalAuthorityBalance / LAMPORTS_PER_SOL} SOL`,
-      auction: `${finalAuctionBalance / LAMPORTS_PER_SOL} SOL`,
+    console.log("📊 Final Token Balances:", {
+      authority: finalAuthorityBalance.toString(),
+      auction: finalAuctionBalance.toString(),
     });
 
     // Verify auction state
     const finalState = await program.account.auctionState.fetch(auctionPda);
     assert.ok(finalState.totalValueLocked.eq(new BN(0)), "Total value locked should be 0 after withdrawal");
-    assert.ok(finalAuctionBalance < auctionBalance, "Auction balance should decrease");
-    assert.ok(finalAuthorityBalance > authorityBalance, "Authority balance should increase");
+    assert.ok(BigInt(finalAuctionBalance) === BigInt(0), "Auction token balance should be 0");
+    assert.ok(
+      BigInt(finalAuthorityBalance) > BigInt(initialAuthorityBalance),
+      "Authority token balance should increase"
+    );
   });
 
   it("should not allow non-authority to withdraw", async () => {
     console.log("\n🚫 Testing unauthorized withdrawal...");
 
+    // Create a random user's token account
+    const randomUser = anchor.web3.Keypair.generate();
+    const randomUserTokenAccount = await createTokenAccount(
+      provider.connection,
+      payer.payer,
+      tokenMint,
+      randomUser.publicKey
+    );
+    console.log("👤 Created random user token account:", randomUserTokenAccount.toString());
+
     const accounts = {
       auction: auctionPda,
       authority: payer.publicKey, // Using wrong authority
+      authorityTokenAccount: randomUserTokenAccount,
+      auctionTokenAccount: auctionTokenAccount,
       payer: payer.publicKey,
       systemProgram: SystemProgram.programId,
+      tokenProgram: TOKEN_PROGRAM_ID,
     };
 
     try {
@@ -504,8 +646,6 @@ describe("Superpull Program", () => {
       assert.fail("Should not allow unauthorized withdrawal");
     } catch (error) {
       console.log("✅ Unauthorized withdrawal correctly rejected");
-      // assert.ok(error.toString().includes("UnauthorizedWithdraw"), 
-      //   "Error should indicate unauthorized withdrawal");
     }
   });
 
