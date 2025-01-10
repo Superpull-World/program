@@ -62,19 +62,34 @@ pub struct PlaceBid<'info> {
 }
 
 pub fn handler(ctx: Context<PlaceBid>, amount: u64) -> Result<()> {
-    let current_price = {
-        let auction = &ctx.accounts.auction;
-        auction.base_price + (auction.price_increment * auction.current_supply)
-    };
+    // Validate bid amount
+    require!(amount > 0, BondingCurveError::InvalidBidAmount);
+    require!(
+        !ctx.accounts.bidder.key().eq(&Pubkey::default()),
+        BondingCurveError::InvalidBidder
+    );
 
     let auction = &ctx.accounts.auction;
-    require!(
-        amount >= current_price,
-        BondingCurveError::InsufficientBidAmount
-    );
+    
+    // Check supply limit
     require!(
         auction.current_supply < auction.max_supply,
         BondingCurveError::MaxSupplyReached
+    );
+
+    // Calculate current price
+    let current_price = auction.base_price
+        .checked_add(
+            auction.price_increment
+                .checked_mul(auction.current_supply)
+                .ok_or(BondingCurveError::MathOverflow)?
+        )
+        .ok_or(BondingCurveError::MathOverflow)?;
+
+    // Validate bid amount against current price
+    require!(
+        amount >= current_price,
+        BondingCurveError::InsufficientBidAmount
     );
 
     // Transfer SOL from bidder to auction account
@@ -90,24 +105,17 @@ pub fn handler(ctx: Context<PlaceBid>, amount: u64) -> Result<()> {
 
     // Update auction state
     let auction = &mut ctx.accounts.auction;
-    let new_supply = auction
-        .current_supply
+    
+    // Safe arithmetic operations
+    auction.current_supply = auction.current_supply
         .checked_add(1)
         .ok_or(BondingCurveError::MathOverflow)?;
     
-    // Double check we haven't exceeded max supply
-    require!(
-        new_supply <= auction.max_supply,
-        BondingCurveError::MaxSupplyReached
-    );
-    
-    auction.current_supply = new_supply;
-    auction.total_value_locked = auction
-        .total_value_locked
+    auction.total_value_locked = auction.total_value_locked
         .checked_add(amount)
         .ok_or(BondingCurveError::MathOverflow)?;
 
-    // Check if auction has graduated
+    // Check for graduation
     if !auction.is_graduated && auction.current_supply >= auction.minimum_items {
         auction.is_graduated = true;
         emit!(AuctionGraduated {

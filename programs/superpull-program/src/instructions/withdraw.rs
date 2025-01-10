@@ -27,15 +27,21 @@ pub struct Withdraw<'info> {
 pub fn handler(ctx: Context<Withdraw>) -> Result<()> {
     let auction = &ctx.accounts.auction;
     
-    // Check if auction has graduated
+    // Validate auction state
     require!(
         auction.is_graduated,
         BondingCurveError::NotGraduated
     );
 
+    // Validate authority
+    require!(
+        !ctx.accounts.authority.key().eq(&Pubkey::default()),
+        BondingCurveError::InvalidAuthority
+    );
+
     // Get the amount to withdraw
     let amount = auction.total_value_locked;
-    require!(amount > 0, BondingCurveError::InsufficientBidAmount);
+    require!(amount > 0, BondingCurveError::NoFundsToWithdraw);
 
     // Get account infos
     let auction_info = ctx.accounts.auction.to_account_info();
@@ -52,17 +58,26 @@ pub fn handler(ctx: Context<Withdraw>) -> Result<()> {
     // Verify we have enough lamports to withdraw while staying rent-exempt
     require!(
         auction_balance >= rent_exempt_balance + amount,
-        BondingCurveError::InsufficientBidAmount
+        BondingCurveError::InsufficientRentBalance
     );
 
     // Calculate the exact amount we can withdraw
-    let withdraw_amount = auction_balance.checked_sub(rent_exempt_balance)
+    let withdraw_amount = auction_balance
+        .checked_sub(rent_exempt_balance)
         .ok_or(BondingCurveError::MathOverflow)?;
 
-    // Transfer lamports directly
-    **auction_info.try_borrow_mut_lamports()? = auction_balance.checked_sub(withdraw_amount)
+    require!(
+        withdraw_amount <= amount,
+        BondingCurveError::ExcessiveWithdrawalAmount
+    );
+
+    // Transfer lamports directly with checked arithmetic
+    **auction_info.try_borrow_mut_lamports()? = auction_balance
+        .checked_sub(withdraw_amount)
         .ok_or(BondingCurveError::MathOverflow)?;
-    **authority_info.try_borrow_mut_lamports()? = authority_balance.checked_add(withdraw_amount)
+
+    **authority_info.try_borrow_mut_lamports()? = authority_balance
+        .checked_add(withdraw_amount)
         .ok_or(BondingCurveError::MathOverflow)?;
 
     // Update auction state

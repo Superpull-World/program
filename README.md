@@ -13,6 +13,37 @@ The SuperPull Program enables creators to launch NFT collections using a graduat
 - **Automatic Graduation**: Collection graduates after reaching minimum items
 - **Secure Withdrawals**: Authority can withdraw funds after graduation
 - **Collection Authority**: Auction PDA acts as collection authority
+- **Comprehensive Validation**: Extensive input validation and error handling
+
+## Input Validation & Error Handling
+
+### Initialize Auction
+- Validates all numerical inputs are positive
+- Ensures minimum_items <= max_supply
+- Verifies merkle tree configuration
+- Prevents zero address authority
+
+### Place Bid
+- Validates bid amount against current price
+- Prevents zero address bidder
+- Enforces maximum supply limit
+- Uses checked arithmetic for all calculations
+- Validates graduation conditions
+
+### Withdraw
+- Verifies auction graduation status
+- Validates authority permissions
+- Ensures sufficient funds for withdrawal
+- Maintains rent-exempt balance
+- Uses checked arithmetic for transfers
+
+### Error Categories
+- **General Errors**: Math overflow protection
+- **Initialization Errors**: Input parameter validation
+- **Bid Errors**: Amount and bidder validation
+- **Withdrawal Errors**: Balance and permission checks
+- **State Errors**: Auction state validation
+- **Account Errors**: Ownership and rent validation
 
 ## Key Instructions
 

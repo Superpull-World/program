@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::{
     state::AuctionState,
-    utils::events::AuctionInitialized,
+    utils::{errors::BondingCurveError, events::AuctionInitialized},
 };
 
 #[derive(Accounts)]
@@ -46,8 +46,30 @@ pub fn handler(
     base_price: u64,
     price_increment: u64,
     max_supply: u64,
-    minimum_items: u64,
+    minimum_items: u64
 ) -> Result<()> {
+    // Validate input parameters
+    require!(base_price > 0, BondingCurveError::InvalidBasePrice);
+    require!(price_increment > 0, BondingCurveError::InvalidPriceIncrement);
+    require!(max_supply > 0, BondingCurveError::InvalidMaxSupply);
+    require!(
+        minimum_items > 0 && minimum_items <= max_supply,
+        BondingCurveError::InvalidMinimumItems
+    );
+
+    // Validate merkle tree configuration
+    require!(
+        !ctx.accounts.merkle_tree.data_is_empty(),
+        BondingCurveError::InvalidMerkleTree
+    );
+
+    // Validate authority
+    require!(
+        !ctx.accounts.authority.key().eq(&Pubkey::default()),
+        BondingCurveError::InvalidAuthority
+    );
+
+    // Initialize auction state
     let auction = &mut ctx.accounts.auction;
     auction.authority = ctx.accounts.authority.key();
     auction.merkle_tree = ctx.accounts.merkle_tree.key();
@@ -63,8 +85,8 @@ pub fn handler(
     // Emit initialization event
     emit!(AuctionInitialized {
         auction: auction.key(),
-        authority: auction.authority,
-        merkle_tree: auction.merkle_tree,
+        authority: ctx.accounts.authority.key(),
+        merkle_tree: ctx.accounts.merkle_tree.key(),
         base_price,
         price_increment,
         max_supply,
