@@ -61,6 +61,7 @@ pub fn withdraw_handler(ctx: Context<Withdraw>) -> Result<()> {
     let seeds = &[
         b"auction",
         auction.authority.as_ref(),
+        auction.collection_mint.as_ref(),
         &[auction.bump],
     ];
     let signer = &[&seeds[..]];

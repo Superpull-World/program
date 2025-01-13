@@ -233,6 +233,7 @@ pub fn place_bid_handler(
     let signer_seeds: &[&[&[u8]]] = &[&[
         b"auction",
         auction.authority.as_ref(),
+        auction.collection_mint.as_ref(),
         &[auction.bump],
     ]];
 

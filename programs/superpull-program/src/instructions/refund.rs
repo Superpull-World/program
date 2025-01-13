@@ -63,6 +63,7 @@ pub fn refund_handler(ctx: Context<Refund>) -> Result<()> {
     let seeds = &[
         b"auction",
         auction.authority.as_ref(),
+        auction.collection_mint.as_ref(),
         &[auction.bump],
     ];
     let signer = &[&seeds[..]];

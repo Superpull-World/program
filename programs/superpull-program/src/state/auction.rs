@@ -5,6 +5,7 @@ pub struct AuctionState {
     pub authority: Pubkey,
     pub merkle_tree: Pubkey,
     pub token_mint: Pubkey,
+    pub collection_mint: Pubkey,
     pub base_price: u64,
     pub price_increment: u64,
     pub current_supply: u64,
@@ -21,6 +22,7 @@ impl AuctionState {
         32 + // authority
         32 + // merkle_tree
         32 + // token_mint
+        32 + // collection_mint
         8 + // base_price
         8 + // price_increment
         8 + // current_supply

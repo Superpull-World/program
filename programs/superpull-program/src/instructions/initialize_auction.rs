@@ -14,6 +14,7 @@ pub struct InitializeAuction<'info> {
         seeds = [
             b"auction",
             authority.key().as_ref(),
+            collection_mint.key().as_ref(),
         ],
         bump
     )]
@@ -85,6 +86,7 @@ pub fn initialize_auction_handler(
     auction.authority = ctx.accounts.authority.key();
     auction.merkle_tree = ctx.accounts.merkle_tree.key();
     auction.token_mint = ctx.accounts.token_mint.key();
+    auction.collection_mint = ctx.accounts.collection_mint.key();
     auction.base_price = base_price;
     auction.price_increment = price_increment;
     auction.current_supply = 0;
@@ -101,6 +103,7 @@ pub fn initialize_auction_handler(
         authority: ctx.accounts.authority.key(),
         merkle_tree: ctx.accounts.merkle_tree.key(),
         token_mint: ctx.accounts.token_mint.key(),
+        collection_mint: ctx.accounts.collection_mint.key(),
         base_price,
         price_increment,
         max_supply,

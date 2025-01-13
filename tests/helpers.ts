@@ -91,7 +91,7 @@ export async function setupTestContext(): Promise<TestContext> {
 
   // Calculate auction PDA
   const [auctionPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("auction"), auctionCreator.publicKey.toBuffer()],
+    [Buffer.from("auction"), auctionCreator.publicKey.toBuffer(), toWeb3JsPublicKey(collectionMint.publicKey).toBuffer()],
     program.programId
   );
   console.log("🎯 Auction PDA:", auctionPda.toString());
