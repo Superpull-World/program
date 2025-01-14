@@ -2,14 +2,15 @@ use anchor_lang::prelude::*;
 use anchor_spl::token;
 use crate::{
     state::AuctionState,
-    utils::{errors::BondingCurveError, events::FundsWithdrawn},
+    utils::errors::SuperpullProgramError,
+    utils::events::FundsWithdrawn,
 };
 
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
     #[account(
         mut,
-        has_one = authority @ BondingCurveError::UnauthorizedWithdraw,
+        has_one = authority @ SuperpullProgramError::UnauthorizedWithdraw,
     )]
     pub auction: Account<'info, AuctionState>,
 
@@ -44,18 +45,18 @@ pub fn withdraw_handler(ctx: Context<Withdraw>) -> Result<()> {
     // Validate auction state
     require!(
         auction.is_graduated,
-        BondingCurveError::NotGraduated
+        SuperpullProgramError::NotGraduated
     );
 
     // Validate authority
     require!(
         !ctx.accounts.authority.key().eq(&Pubkey::default()),
-        BondingCurveError::InvalidAuthority
+        SuperpullProgramError::InvalidAuthority
     );
 
     // Get the amount to withdraw
     let amount = auction.total_value_locked;
-    require!(amount > 0, BondingCurveError::NoFundsToWithdraw);
+    require!(amount > 0, SuperpullProgramError::NoFundsToWithdraw);
 
     // Transfer tokens from auction account to authority account
     let seeds = &[

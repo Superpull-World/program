@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token;
 use crate::{
     state::{AuctionState, BidState},
-    utils::{errors::BondingCurveError, events::BidRefunded},
+    utils::{errors::SuperpullProgramError, events::BidRefunded},
 };
 
 #[derive(Accounts)]
@@ -51,11 +51,11 @@ pub fn refund_handler(ctx: Context<Refund>) -> Result<()> {
     let current_time = Clock::get()?.unix_timestamp;
     require!(
         current_time > auction.deadline && !auction.is_graduated,
-        BondingCurveError::InvalidRefundAttempt
+        SuperpullProgramError::InvalidRefundAttempt
     );
 
     // Check if there's anything to refund
-    require!(bid.amount > 0, BondingCurveError::NoFundsToRefund);
+    require!(bid.amount > 0, SuperpullProgramError::NoFundsToRefund);
 
     msg!("TODO: Implement NFT burning");
 
@@ -85,7 +85,7 @@ pub fn refund_handler(ctx: Context<Refund>) -> Result<()> {
     let auction = &mut ctx.accounts.auction;
     auction.total_value_locked = auction.total_value_locked
         .checked_sub(bid.amount)
-        .ok_or(BondingCurveError::MathOverflow)?;
+        .ok_or(SuperpullProgramError::MathOverflow)?;
 
     // Update bid state
     let bid = &mut ctx.accounts.bid;

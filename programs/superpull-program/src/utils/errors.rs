@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 #[error_code]
-pub enum BondingCurveError {
+pub enum SuperpullProgramError {
     // General errors
     #[msg("Math operation overflowed")]
     MathOverflow,
@@ -27,6 +27,8 @@ pub enum BondingCurveError {
     InvalidBidAmount,
     #[msg("Bidder cannot be the zero address")]
     InvalidBidder,
+    #[msg("Token account mint does not match auction token mint")]
+    InvalidTokenMint,
 
     // Withdrawal errors
     #[msg("Unauthorized withdrawal attempt")]

@@ -6,7 +6,8 @@ use mpl_bubblegum::{
 };
 use crate::{
     state::{AuctionState, BidState},
-    utils::{errors::BondingCurveError, events::{BidPlaced, AuctionGraduated}},
+    utils::errors::SuperpullProgramError,
+    utils::events::{BidPlaced, AuctionGraduated},
 };
 
 #[derive(Accounts)]
@@ -35,13 +36,27 @@ pub struct PlaceBid<'info> {
     pub payer: Signer<'info>,
 
     /// The bidder's token account to transfer from
-    /// CHECK: Validated through token program CPI
-    #[account(mut)]
+    /// CHECK: Validated through token program CPI and constraint
+    #[account(
+        mut,
+        constraint = *bidder_token_account.owner == token_program.key(),
+        constraint = {
+            let token_account = token::TokenAccount::try_deserialize(&mut &bidder_token_account.data.borrow()[..]).unwrap();
+            token_account.mint == auction.token_mint
+        } @ SuperpullProgramError::InvalidTokenMint
+    )]
     pub bidder_token_account: AccountInfo<'info>,
 
     /// The auction's token account to receive tokens
-    /// CHECK: Validated through token program CPI
-    #[account(mut)]
+    /// CHECK: Validated through token program CPI and constraint
+    #[account(
+        mut,
+        constraint = *auction_token_account.owner == token_program.key(),
+        constraint = {
+            let token_account = token::TokenAccount::try_deserialize(&mut &auction_token_account.data.borrow()[..]).unwrap();
+            token_account.mint == auction.token_mint
+        } @ SuperpullProgramError::InvalidTokenMint
+    )]
     pub auction_token_account: AccountInfo<'info>,
 
     /// CHECK: Validated by Bubblegum program
@@ -93,10 +108,10 @@ pub fn place_bid_handler(
     amount: u64,
 ) -> Result<()> {
     // Validate bid amount
-    require!(amount > 0, BondingCurveError::InvalidBidAmount);
+    require!(amount > 0, SuperpullProgramError::InvalidBidAmount);
     require!(
         !ctx.accounts.bidder.key().eq(&Pubkey::default()),
-        BondingCurveError::InvalidBidder
+        SuperpullProgramError::InvalidBidder
     );
 
     let auction = &ctx.accounts.auction;
@@ -105,13 +120,13 @@ pub fn place_bid_handler(
     let current_time = Clock::get()?.unix_timestamp;
     require!(
         current_time <= auction.deadline || auction.current_supply >= auction.minimum_items,
-        BondingCurveError::AuctionExpired
+        SuperpullProgramError::AuctionExpired
     );
     
     // Check supply limit
     require!(
         auction.current_supply < auction.max_supply,
-        BondingCurveError::MaxSupplyReached
+        SuperpullProgramError::MaxSupplyReached
     );
 
     // Calculate current price
@@ -119,14 +134,14 @@ pub fn place_bid_handler(
         .checked_add(
             auction.price_increment
                 .checked_mul(auction.current_supply)
-                .ok_or(BondingCurveError::MathOverflow)?
+                .ok_or(SuperpullProgramError::MathOverflow)?
         )
-        .ok_or(BondingCurveError::MathOverflow)?;
+        .ok_or(SuperpullProgramError::MathOverflow)?;
 
     // Validate bid amount against current price
     require!(
         amount >= current_price,
-        BondingCurveError::InsufficientBidAmount
+        SuperpullProgramError::InsufficientBidAmount
     );
 
     // Transfer tokens from bidder to auction account
@@ -147,11 +162,11 @@ pub fn place_bid_handler(
     // Safe arithmetic operations
     auction.current_supply = auction.current_supply
         .checked_add(1)
-        .ok_or(BondingCurveError::MathOverflow)?;
+        .ok_or(SuperpullProgramError::MathOverflow)?;
     
     auction.total_value_locked = auction.total_value_locked
         .checked_add(amount)
-        .ok_or(BondingCurveError::MathOverflow)?;
+        .ok_or(SuperpullProgramError::MathOverflow)?;
 
     // Update bid state
     let bid = &mut ctx.accounts.bid;

@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::{
     state::AuctionState,
-    utils::{errors::BondingCurveError, events::AuctionInitialized},
+    utils::{errors::SuperpullProgramError, events::AuctionInitialized},
 };
 
 #[derive(Accounts)]
@@ -54,31 +54,31 @@ pub fn initialize_auction_handler(
     deadline: i64,
 ) -> Result<()> {
     // Validate input parameters
-    require!(base_price > 0, BondingCurveError::InvalidBasePrice);
-    require!(price_increment > 0, BondingCurveError::InvalidPriceIncrement);
-    require!(max_supply > 0, BondingCurveError::InvalidMaxSupply);
+    require!(base_price > 0, SuperpullProgramError::InvalidBasePrice);
+    require!(price_increment > 0, SuperpullProgramError::InvalidPriceIncrement);
+    require!(max_supply > 0, SuperpullProgramError::InvalidMaxSupply);
     require!(
         minimum_items > 0 && minimum_items <= max_supply,
-        BondingCurveError::InvalidMinimumItems
+        SuperpullProgramError::InvalidMinimumItems
     );
 
     // Validate deadline is in the future
     let current_time = Clock::get()?.unix_timestamp;
     require!(
         deadline > current_time,
-        BondingCurveError::InvalidDeadline
+        SuperpullProgramError::InvalidDeadline
     );
 
     // Validate merkle tree configuration
     require!(
         !ctx.accounts.merkle_tree.data_is_empty(),
-        BondingCurveError::InvalidMerkleTree
+        SuperpullProgramError::InvalidMerkleTree
     );
 
     // Validate authority
     require!(
         !ctx.accounts.authority.key().eq(&Pubkey::default()),
-        BondingCurveError::InvalidAuthority
+        SuperpullProgramError::InvalidAuthority
     );
 
     // Initialize auction state
