@@ -25,13 +25,15 @@ import {
   mplBubblegum,
   fetchTreeConfigFromSeeds,
   fetchMerkleTree,
+  setTreeDelegate,
 } from "@metaplex-foundation/mpl-bubblegum";
 import {
   createNft,
   MPL_TOKEN_METADATA_PROGRAM_ID,
   mplTokenMetadata,
   findCollectionAuthorityRecordPda,
-  approveCollectionAuthority,
+  updateV1,
+  fetchMasterEditionFromSeeds,
 } from "@metaplex-foundation/mpl-token-metadata";
 import {
   TOKEN_PROGRAM_ID,
@@ -63,7 +65,6 @@ export interface TestContext {
   merkleTree: Signer;
   collectionMint: Signer;
   treeConfigPda: PublicKey;
-  collectionAuthorityRecordPda: Pda;
   auctionPda: PublicKey;
   tokenMint: PublicKey;
   bidderTokenAccount: PublicKey;
@@ -166,7 +167,6 @@ export async function setupTestContext(): Promise<TestContext> {
     merkleTree,
     collectionMint,
     treeConfigPda: null!, // Will be set after tree creation
-    collectionAuthorityRecordPda,
     auctionPda,
     tokenMint,
     bidderTokenAccount,
@@ -180,6 +180,7 @@ export async function setupCollection(ctx: TestContext) {
     mint: ctx.collectionMint,
     name: COLLECTION_NAME,
     symbol: COLLECTION_SYMBOL,
+    // printSupply: printSupply("Unlimited"),
     uri: COLLECTION_URI,
     sellerFeeBasisPoints: percentAmount(0),
     isCollection: true,
@@ -190,16 +191,14 @@ export async function setupCollection(ctx: TestContext) {
   await collectionTx.sendAndConfirm(ctx.umi);
   console.log("✅ Collection created successfully");
 
-  console.log("🔑 Setting collection authority...");
-  const setAuthorityTx = approveCollectionAuthority(ctx.umi, {
+  const updateV1Tx = await updateV1(ctx.umi, {
     mint: ctx.collectionMint.publicKey,
+    newUpdateAuthority:   fromWeb3JsPublicKey(ctx.auctionPda),
+    // authority: fromWeb3JsPublicKey(ctx.auctionPda),
     payer: createSignerFromKeypair(ctx.umi, fromWeb3JsKeypair(ctx.payer.payer)),
-    updateAuthority: createSignerFromKeypair(ctx.umi, fromWeb3JsKeypair(ctx.payer.payer)),
-    newCollectionAuthority: fromWeb3JsPublicKey(ctx.auctionPda),
-    collectionAuthorityRecord: ctx.collectionAuthorityRecordPda,
   });
-  await setAuthorityTx.sendAndConfirm(ctx.umi);
-  console.log("✅ Collection authority set successfully");
+  await updateV1Tx.sendAndConfirm(ctx.umi);
+  console.log("✅ Collection metadata updated successfully");
 }
 
 export async function setupMerkleTree(ctx: TestContext) {
@@ -207,7 +206,7 @@ export async function setupMerkleTree(ctx: TestContext) {
   const treeTx = await createTree(ctx.umi, {
     maxDepth: MAX_DEPTH,
     maxBufferSize: MAX_BUFFER_SIZE,
-    public: some(true),
+    public: some(false),
     merkleTree: ctx.merkleTree,
   });
   await treeTx.sendAndConfirm(ctx.umi);
@@ -225,6 +224,13 @@ export async function setupMerkleTree(ctx: TestContext) {
   });
 
   ctx.treeConfigPda = toWeb3JsPublicKey(treeConfigAccount.publicKey);
+
+  const setTreeDelegateTx = await setTreeDelegate(ctx.umi, {
+    merkleTree: ctx.merkleTree.publicKey,
+    newTreeDelegate: fromWeb3JsPublicKey(ctx.auctionPda),
+  });
+  await setTreeDelegateTx.sendAndConfirm(ctx.umi);
+  console.log("✅ Tree delegate set successfully");
 }
 
 export async function initializeAuction(
@@ -287,6 +293,13 @@ export async function placeBid(
     ctx.program.programId
   );
 
+  const masterEdition = await fetchMasterEditionFromSeeds(ctx.umi, { mint: ctx.collectionMint.publicKey });
+  console.log("👤 Master Edition:", masterEdition);
+  const collectionAuthorityRecordPda = findCollectionAuthorityRecordPda(ctx.umi, {
+    mint: masterEdition.publicKey,
+    collectionAuthority: fromWeb3JsPublicKey(ctx.auctionPda),
+  });
+  console.log("👤 Collection Authority Record PDA:", collectionAuthorityRecordPda);
   const accounts = {
     auction: ctx.auctionPda,
     bid: bidPda,
@@ -297,9 +310,7 @@ export async function placeBid(
     collectionMint: toWeb3JsPublicKey(ctx.collectionMint.publicKey),
     collectionMetadata: findMetadataPda(toWeb3JsPublicKey(ctx.collectionMint.publicKey)),
     collectionEdition: findEditionPda(toWeb3JsPublicKey(ctx.collectionMint.publicKey)),
-    collectionAuthority: fromWeb3JsPublicKey(ctx.payer.publicKey),
     merkleTree: toWeb3JsPublicKey(ctx.merkleTree.publicKey),
-    collectionAuthorityRecordPda: ctx.collectionAuthorityRecordPda[0],
     treeConfig: ctx.treeConfigPda,
     treeCreator: ctx.auctionPda,
     bubblegumSigner: findBubblegumSignerPda(),
@@ -448,7 +459,6 @@ export function getCommonAccounts(
     collectionEdition: findEditionPda(toWeb3JsPublicKey(ctx.collectionMint.publicKey)),
     collectionAuthority: fromWeb3JsPublicKey(ctx.payer.publicKey),
     merkleTree: toWeb3JsPublicKey(ctx.merkleTree.publicKey),
-    collectionAuthorityRecordPda: ctx.collectionAuthorityRecordPda[0],
     treeConfig: ctx.treeConfigPda,
     treeCreator: ctx.auctionPda,
     bubblegumSigner: findBubblegumSignerPda(),

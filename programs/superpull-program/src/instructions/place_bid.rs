@@ -13,7 +13,10 @@ use crate::{
 #[derive(Accounts)]
 #[instruction(amount: u64)]
 pub struct PlaceBid<'info> {
-    #[account(mut)]
+    #[account(mut,
+    seeds = [b"auction", auction.authority.as_ref(), auction.collection_mint.as_ref()],
+    bump = auction.bump,
+    )]
     pub auction: Account<'info, AuctionState>,
 
     #[account(
@@ -70,9 +73,6 @@ pub struct PlaceBid<'info> {
     /// CHECK: Validated by Bubblegum program
     #[account(mut)]
     pub collection_edition: AccountInfo<'info>,
-
-    /// CHECK: Validated by Bubblegum program
-    pub collection_authority_record_pda: AccountInfo<'info>,
 
     /// CHECK: Validated by Bubblegum program
     #[account(mut)]
@@ -140,7 +140,7 @@ pub fn place_bid_handler(
 
     // Validate bid amount against current price
     require!(
-        amount >= current_price,
+        amount == current_price,
         SuperpullProgramError::InsufficientBidAmount
     );
 
@@ -173,7 +173,9 @@ pub fn place_bid_handler(
     bid.auction = auction.key();
     bid.bidder = ctx.accounts.bidder.key();
     bid.amount += amount;
+    bid.count += 1;
     bid.bump = ctx.bumps.bid;
+
 
     // Check for graduation
     if !auction.is_graduated && auction.current_supply >= auction.minimum_items {
@@ -200,7 +202,6 @@ pub fn place_bid_handler(
     let token_metadata_program = ctx.accounts.token_metadata_program.to_account_info();
     let system_program = ctx.accounts.system_program.to_account_info();
     let bubblegum_signer = ctx.accounts.bubblegum_signer.to_account_info();
-    let collection_authority_record_pda = ctx.accounts.collection_authority_record_pda.to_account_info();
 
     // Initialize CPI
     let mint_to_collection_cpi = MintToCollectionV1Cpi::new(
@@ -216,7 +217,7 @@ pub fn place_bid_handler(
             collection_mint: collection_mint.as_ref(),
             collection_metadata: collection_metadata.as_ref(),
             collection_edition: collection_edition.as_ref(),
-            collection_authority_record_pda: Some(collection_authority_record_pda.as_ref()),
+            collection_authority_record_pda: None,
             log_wrapper: log_wrapper.as_ref(),
             bubblegum_signer: bubblegum_signer.as_ref(),
             compression_program: compression_program.as_ref(),

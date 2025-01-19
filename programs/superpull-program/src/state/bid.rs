@@ -6,6 +6,7 @@ pub struct BidState {
     pub bidder: Pubkey,
     pub amount: u64,
     pub bump: u8,
+    pub count: u8,
 }
 
 impl BidState {
@@ -13,5 +14,6 @@ impl BidState {
         32 + // auction
         32 + // bidder
         8 +  // amount
-        1;  // bump
+        1 +  // bump
+        1;  // count
 } 
